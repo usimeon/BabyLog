@@ -103,6 +103,22 @@ EXPO_PUBLIC_AI_SUMMARY_ENDPOINT=https://YOUR_BACKEND/ai-summary
 
 If unset or unavailable, the app uses a local fallback summary generator.
 
+### Local terminal endpoint (included in this repo)
+
+Start endpoint:
+
+```bash
+npm run ai:server
+```
+
+Set app env:
+
+```bash
+EXPO_PUBLIC_AI_SUMMARY_ENDPOINT=http://localhost:8787/ai-summary
+```
+
+For physical iPhone devices, replace `localhost` with your Mac LAN IP.
+
 ## 4) Run typecheck
 
 ```bash
