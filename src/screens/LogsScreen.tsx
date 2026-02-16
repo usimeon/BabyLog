@@ -3,14 +3,14 @@ import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../app/navigation';
-import { Button, Card, Row, SelectPill } from '../components/ui';
+import { Button, Card, Input, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
 import { listFeeds, softDeleteFeed } from '../db/feedRepo';
 import { listMeasurements, softDeleteMeasurement } from '../db/measurementRepo';
 import { listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperatureRepo';
 import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
-import { formatDateTime } from '../utils/time';
+import { formatDateTime, startOfDay } from '../utils/time';
 import { formatAmount, formatWeight } from '../utils/units';
 
 type LogFilter = 'all' | 'feed' | 'measurement' | 'temperature' | 'diaper';
@@ -26,11 +26,26 @@ type LogEntry = {
 
 const filters: LogFilter[] = ['all', 'feed', 'measurement', 'temperature', 'diaper'];
 
+type GlanceStats = {
+  feedsToday: number;
+  diapersToday: number;
+  latestTempC: string;
+  entriesToday: number;
+};
+
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { babyId, amountUnit, weightUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } = useAppContext();
   const [filter, setFilter] = useState<LogFilter>('all');
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [glance, setGlance] = useState<GlanceStats>({
+    feedsToday: 0,
+    diapersToday: 0,
+    latestTempC: '—',
+    entriesToday: 0,
+  });
 
   const load = useCallback(async () => {
     const [feeds, measurements, temps, diapers] = await Promise.all([
@@ -76,6 +91,14 @@ export const LogsScreen = () => {
     ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
     setEntries(mapped);
+
+    const dayStart = startOfDay(new Date()).getTime();
+    setGlance({
+      feedsToday: feeds.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
+      diapersToday: diapers.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
+      latestTempC: temps.length ? Number(temps[0].temperature_c).toFixed(1) : '—',
+      entriesToday: mapped.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
+    });
   }, [babyId, amountUnit, weightUnit]);
 
   useFocusEffect(
@@ -88,10 +111,15 @@ export const LogsScreen = () => {
     load();
   }, [dataVersion, load]);
 
-  const visible = useMemo(
-    () => (filter === 'all' ? entries : entries.filter((x) => x.kind === filter)),
-    [entries, filter],
-  );
+  const visible = useMemo(() => {
+    const typed = filter === 'all' ? entries : entries.filter((x) => x.kind === filter);
+    const query = search.trim().toLowerCase();
+    if (!query) return typed;
+    return typed.filter((x) => {
+      const text = `${x.kind} ${x.title} ${x.subtitle} ${x.notes ?? ''}`.toLowerCase();
+      return text.includes(query);
+    });
+  }, [entries, filter, search]);
 
   const onDelete = (entry: LogEntry) => {
     Alert.alert('Delete entry', 'Remove this log entry?', [
@@ -114,6 +142,16 @@ export const LogsScreen = () => {
         },
       },
     ]);
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await syncNow();
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   return (
@@ -145,6 +183,27 @@ export const LogsScreen = () => {
               <Button title="Refresh Logs" variant="secondary" onPress={load} />
             </Card>
 
+            <Card title="Today At A Glance">
+              <Row>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{glance.entriesToday}</Text>
+                  <Text style={styles.statLabel}>entries</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{glance.feedsToday}</Text>
+                  <Text style={styles.statLabel}>feeds</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{glance.diapersToday}</Text>
+                  <Text style={styles.statLabel}>diapers</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{glance.latestTempC}</Text>
+                  <Text style={styles.statLabel}>latest C</Text>
+                </View>
+              </Row>
+            </Card>
+
             <Card title="Filter">
               <Row>
                 {filters.map((option) => (
@@ -156,6 +215,12 @@ export const LogsScreen = () => {
                   />
                 ))}
               </Row>
+              <Input
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search notes, type, details..."
+                style={{ marginTop: 10 }}
+              />
               <Text style={styles.hint}>Long press an entry to delete.</Text>
             </Card>
           </View>
@@ -171,6 +236,8 @@ export const LogsScreen = () => {
         )}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         ListEmptyComponent={<Text style={styles.empty}>No entries yet.</Text>}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
       />
     </SafeAreaView>
@@ -181,6 +248,17 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   headerWrap: { paddingTop: 16, gap: 8 },
   hint: { color: '#6b7280', fontSize: 12, marginTop: 4 },
+  statBox: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    minWidth: 72,
+  },
+  statValue: { fontSize: 18, fontWeight: '700', color: '#111827' },
+  statLabel: { fontSize: 11, color: '#64748b' },
   row: {
     backgroundColor: '#fff',
     borderRadius: 12,
