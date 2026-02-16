@@ -66,6 +66,11 @@ const MIGRATIONS = [
 
 export const migrate = async () => {
   await execSql('PRAGMA journal_mode = WAL;');
+  await execSql(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY NOT NULL
+    );
+  `);
 
   for (const migration of MIGRATIONS) {
     const found = await getOne<{ version: number }>(
