@@ -7,9 +7,11 @@ import {
   getAmountUnit,
   getLastSyncAt,
   getReminderSettings,
+  getTempUnit,
   getWeightUnit,
   setAuthUserId,
   setAmountUnit,
+  setTempUnit,
   setWeightUnit,
   saveReminderSettings,
 } from '../db/settingsRepo';
@@ -23,6 +25,7 @@ type AppContextValue = {
   babyId: string;
   amountUnit: 'ml' | 'oz';
   weightUnit: 'kg' | 'lb';
+  tempUnit: 'c' | 'f';
   reminderSettings: ReminderSettings;
   session: Session | null;
   supabaseEnabled: boolean;
@@ -33,6 +36,7 @@ type AppContextValue = {
   refreshAppState: () => Promise<void>;
   updateAmountUnit: (unit: 'ml' | 'oz') => Promise<void>;
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
+  updateTempUnit: (unit: 'c' | 'f') => Promise<void>;
   updateReminderSettings: (settings: ReminderSettings) => Promise<void>;
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
@@ -53,7 +57,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [initialized, setInitialized] = useState(false);
   const [babyId, setBabyId] = useState('');
   const [amountUnit, setAmountUnitState] = useState<'ml' | 'oz'>('ml');
-  const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('kg');
+  const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('lb');
+  const [tempUnit, setTempUnitState] = useState<'c' | 'f'>('f');
   const [reminderSettings, setReminderSettingsState] = useState<ReminderSettings>(defaultReminder);
   const [session, setSession] = useState<Session | null>(null);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
@@ -71,12 +76,14 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const baby = await getOrCreateDefaultBaby();
     const nextAmountUnit = (await getAmountUnit()) as 'ml' | 'oz';
     const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
+    const nextTempUnit = (await getTempUnit()) as 'c' | 'f';
     const nextReminder = await getReminderSettings();
     const nextLastSyncAt = await getLastSyncAt();
 
     setBabyId(baby.id);
     setAmountUnitState(nextAmountUnit);
     setWeightUnitState(nextWeightUnit);
+    setTempUnitState(nextTempUnit);
     setReminderSettingsState(nextReminder);
     setLastSyncAtState(nextLastSyncAt);
   };
@@ -142,6 +149,11 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setWeightUnitState(unit);
   };
 
+  const updateTempUnit = async (unit: 'c' | 'f') => {
+    await setTempUnit(unit);
+    setTempUnitState(unit);
+  };
+
   const updateReminderSettings = async (settings: ReminderSettings) => {
     await saveReminderSettings(settings);
     setReminderSettingsState(settings);
@@ -153,6 +165,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       babyId,
       amountUnit,
       weightUnit,
+      tempUnit,
       reminderSettings,
       session,
       supabaseEnabled: isSupabaseConfigured,
@@ -163,6 +176,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       refreshAppState,
       updateAmountUnit,
       updateWeightUnit,
+      updateTempUnit,
       updateReminderSettings,
       refreshSession,
       syncNow,
@@ -173,6 +187,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       babyId,
       amountUnit,
       weightUnit,
+      tempUnit,
       reminderSettings,
       session,
       syncState,

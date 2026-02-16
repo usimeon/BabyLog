@@ -10,7 +10,7 @@ import { addMeasurement, getMeasurementById, updateMeasurement } from '../db/mea
 import { addTemperatureLog, getTemperatureById, updateTemperatureLog } from '../db/temperatureRepo';
 import { addDiaperLog, getDiaperById, updateDiaperLog } from '../db/diaperRepo';
 import { PoopSize } from '../types/models';
-import { displayToKg, displayToMl, kgToDisplay, mlToDisplay } from '../utils/units';
+import { cToDisplay, displayToC, displayToKg, displayToMl, kgToDisplay, mlToDisplay } from '../utils/units';
 import { recalculateReminder } from '../services/reminderCoordinator';
 
 type EntryType = 'feed' | 'measurement' | 'temperature' | 'diaper';
@@ -20,7 +20,7 @@ const feedSides: FeedInput['side'][] = ['left', 'right', 'both', 'none'];
 const poopSizes: PoopSize[] = ['small', 'medium', 'large'];
 
 export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<RootStackParamList, 'AddEntry'>) => {
-  const { babyId, amountUnit, weightUnit, reminderSettings, syncNow, bumpDataVersion } = useAppContext();
+  const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, syncNow, bumpDataVersion } = useAppContext();
   const initialType = (route.params?.type as EntryType | undefined) ?? 'feed';
   const entryId = route.params?.entryId;
   const isEditing = Boolean(entryId);
@@ -79,7 +79,7 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
         const t = await getTemperatureById(entryId);
         if (!t) return;
         setTimestamp(new Date(t.timestamp));
-        setTemperatureC(String(Number(t.temperature_c).toFixed(1)));
+        setTemperatureC(String(cToDisplay(Number(t.temperature_c), tempUnit).toFixed(1)));
         setTemperatureNotes(t.notes ?? '');
       }
 
@@ -95,7 +95,7 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
     };
 
     load();
-  }, [entryId, entryType, amountUnit, weightUnit]);
+  }, [entryId, entryType, amountUnit, weightUnit, tempUnit]);
 
   const save = async () => {
     try {
@@ -141,14 +141,14 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
       }
 
       if (entryType === 'temperature') {
-        const parsedTemp = Number(temperatureC);
-        if (!Number.isFinite(parsedTemp)) {
-          throw new Error('Enter a valid temperature in C.');
+        const parsedDisplayTemp = Number(temperatureC);
+        if (!Number.isFinite(parsedDisplayTemp)) {
+          throw new Error(`Enter a valid temperature in ${tempUnit.toUpperCase()}.`);
         }
 
         const payload = {
           timestamp: timestamp.toISOString(),
-          temperature_c: parsedTemp,
+          temperature_c: displayToC(parsedDisplayTemp, tempUnit),
           notes: temperatureNotes || null,
         };
 
@@ -273,7 +273,7 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
 
         {entryType === 'temperature' ? (
           <Card title="Temperature Details">
-            <Label>Temperature (C)</Label>
+            <Label>Temperature ({tempUnit.toUpperCase()})</Label>
             <Input value={temperatureC} onChangeText={setTemperatureC} keyboardType="decimal-pad" />
 
             <Label>Notes</Label>

@@ -5,6 +5,7 @@ import { nowIso } from '../utils/time';
 const REMINDER_KEY = 'reminder_settings';
 const AMOUNT_UNIT_KEY = 'amount_unit';
 const WEIGHT_UNIT_KEY = 'weight_unit';
+const TEMP_UNIT_KEY = 'temp_unit';
 const AUTH_USER_KEY = 'auth_user_id';
 const REMINDER_NOTIFICATION_ID = 'reminder_notification_id';
 const LAST_SYNC_AT = 'last_sync_at';
@@ -52,8 +53,11 @@ export const saveReminderSettings = async (settings: ReminderSettings) => {
 export const getAmountUnit = async () => (await getSetting(AMOUNT_UNIT_KEY)) ?? 'ml';
 export const setAmountUnit = async (unit: 'ml' | 'oz') => setSetting(AMOUNT_UNIT_KEY, unit);
 
-export const getWeightUnit = async () => (await getSetting(WEIGHT_UNIT_KEY)) ?? 'kg';
+export const getWeightUnit = async () => (await getSetting(WEIGHT_UNIT_KEY)) ?? 'lb';
 export const setWeightUnit = async (unit: 'kg' | 'lb') => setSetting(WEIGHT_UNIT_KEY, unit);
+
+export const getTempUnit = async () => (await getSetting(TEMP_UNIT_KEY)) ?? 'f';
+export const setTempUnit = async (unit: 'c' | 'f') => setSetting(TEMP_UNIT_KEY, unit);
 
 export const setAuthUserId = async (userId: string | null) => setSetting(AUTH_USER_KEY, userId ?? '');
 export const getAuthUserId = async () => (await getSetting(AUTH_USER_KEY)) || null;

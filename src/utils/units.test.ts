@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayToKg, displayToMl, kgToDisplay, mlToDisplay } from './units';
+import { cToDisplay, displayToC, displayToKg, displayToMl, kgToDisplay, mlToDisplay } from './units';
 
 describe('units conversion', () => {
   it('round-trips ml and oz', () => {
@@ -17,5 +17,11 @@ describe('units conversion', () => {
   it('keeps canonical unit unchanged', () => {
     expect(displayToMl(90, 'ml')).toBe(90);
     expect(displayToKg(5.5, 'kg')).toBe(5.5);
+  });
+
+  it('round-trips celsius and fahrenheit', () => {
+    const c = displayToC(98.6, 'f');
+    const f = cToDisplay(c, 'f');
+    expect(f).toBeCloseTo(98.6, 5);
   });
 });

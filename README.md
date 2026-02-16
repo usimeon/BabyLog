@@ -182,7 +182,11 @@ Excel sheets:
 - Canonical storage units:
   - feed amount: `amount_ml`
   - weight: `weight_kg`
+- temperature: `temperature_c`
 - UI unit conversion supports ml/oz and kg/lb.
+- Default units on fresh install:
+  - weight: `lb`
+  - temperature: `F`
 
 ## Supabase env troubleshooting
 - Ensure the file is exactly `/Users/simeon/Documents/MY APPS/Shyla/.env`

@@ -11,7 +11,7 @@ import { listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperature
 import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
 import { formatDateTime, startOfDay } from '../utils/time';
-import { formatAmount, formatWeight } from '../utils/units';
+import { cToDisplay, formatAmount, formatTemp, formatWeight } from '../utils/units';
 
 type LogFilter = 'all' | 'feed' | 'measurement' | 'temperature' | 'diaper';
 
@@ -29,7 +29,7 @@ const filters: LogFilter[] = ['all', 'feed', 'measurement', 'temperature', 'diap
 type GlanceStats = {
   feedsToday: number;
   diapersToday: number;
-  latestTempC: string;
+  latestTemp: string;
   entriesToday: number;
 };
 
@@ -40,7 +40,8 @@ type AlertItem = {
 
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, amountUnit, weightUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } = useAppContext();
+  const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } =
+    useAppContext();
   const [filter, setFilter] = useState<LogFilter>('all');
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState('');
@@ -48,7 +49,7 @@ export const LogsScreen = () => {
   const [glance, setGlance] = useState<GlanceStats>({
     feedsToday: 0,
     diapersToday: 0,
-    latestTempC: '—',
+    latestTemp: '—',
     entriesToday: 0,
   });
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -83,7 +84,7 @@ export const LogsScreen = () => {
         id: item.id,
         kind: 'temperature' as const,
         timestamp: item.timestamp,
-        title: `Temp • ${Number(item.temperature_c).toFixed(1)} C`,
+        title: `Temp • ${formatTemp(Number(item.temperature_c), tempUnit)}`,
         subtitle: 'Temperature check',
         notes: item.notes,
       })),
@@ -103,7 +104,7 @@ export const LogsScreen = () => {
     setGlance({
       feedsToday: feeds.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
       diapersToday: diapers.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
-      latestTempC: temps.length ? Number(temps[0].temperature_c).toFixed(1) : '—',
+      latestTemp: temps.length ? cToDisplay(Number(temps[0].temperature_c), tempUnit).toFixed(1) : '—',
       entriesToday: mapped.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
     });
 
@@ -125,7 +126,7 @@ export const LogsScreen = () => {
     if (latestTemp && Number(latestTemp.temperature_c) >= 38) {
       nextAlerts.push({
         level: 'critical',
-        message: `Latest logged temperature is ${Number(latestTemp.temperature_c).toFixed(1)} C.`,
+        message: `Latest logged temperature is ${formatTemp(Number(latestTemp.temperature_c), tempUnit)}.`,
       });
     }
 
@@ -155,7 +156,7 @@ export const LogsScreen = () => {
       }
     });
     setDailyCounts(Array.from(countsMap.entries()).map(([day, count]) => ({ day, count })));
-  }, [babyId, amountUnit, weightUnit, reminderSettings.enabled, reminderSettings.intervalHours]);
+  }, [babyId, amountUnit, weightUnit, tempUnit, reminderSettings.enabled, reminderSettings.intervalHours]);
 
   useFocusEffect(
     useCallback(() => {
@@ -263,8 +264,8 @@ export const LogsScreen = () => {
                   <Text style={styles.statLabel}>diapers</Text>
                 </View>
                 <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{glance.latestTempC}</Text>
-                  <Text style={styles.statLabel}>latest C</Text>
+                  <Text style={styles.statValue}>{glance.latestTemp}</Text>
+                  <Text style={styles.statLabel}>latest {tempUnit.toUpperCase()}</Text>
                 </View>
               </Row>
             </Card>

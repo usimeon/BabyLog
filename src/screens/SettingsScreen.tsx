@@ -18,9 +18,11 @@ export const SettingsScreen = () => {
     babyId,
     amountUnit,
     weightUnit,
+    tempUnit,
     reminderSettings,
     updateAmountUnit,
     updateWeightUnit,
+    updateTempUnit,
     updateReminderSettings,
     session,
     supabaseEnabled,
@@ -145,6 +147,12 @@ export const SettingsScreen = () => {
           <Row>
             <SelectPill label="kg" selected={weightUnit === 'kg'} onPress={() => updateWeightUnit('kg')} />
             <SelectPill label="lb" selected={weightUnit === 'lb'} onPress={() => updateWeightUnit('lb')} />
+          </Row>
+
+          <Label>Temperature unit</Label>
+          <Row>
+            <SelectPill label="F" selected={tempUnit === 'f'} onPress={() => updateTempUnit('f')} />
+            <SelectPill label="C" selected={tempUnit === 'c'} onPress={() => updateTempUnit('c')} />
           </Row>
         </Card>
 

@@ -3,6 +3,7 @@ export type FeedSide = 'left' | 'right' | 'both' | 'none';
 
 export type AmountUnit = 'ml' | 'oz';
 export type WeightUnit = 'kg' | 'lb';
+export type TemperatureUnit = 'c' | 'f';
 export type PoopSize = 'small' | 'medium' | 'large';
 
 export interface BabyProfile {

@@ -1,6 +1,14 @@
 import { getOrCreateDefaultBaby } from './babyRepo';
 import { migrate } from './migrations';
-import { getAmountUnit, getReminderSettings, getWeightUnit, setAmountUnit, setWeightUnit } from './settingsRepo';
+import {
+  getAmountUnit,
+  getReminderSettings,
+  getTempUnit,
+  getWeightUnit,
+  setAmountUnit,
+  setTempUnit,
+  setWeightUnit,
+} from './settingsRepo';
 
 let initialized = false;
 
@@ -13,7 +21,10 @@ export const initDatabase = async () => {
   if (!amount) await setAmountUnit('ml');
 
   const weight = await getWeightUnit();
-  if (!weight) await setWeightUnit('kg');
+  if (!weight) await setWeightUnit('lb');
+
+  const temp = await getTempUnit();
+  if (!temp) await setTempUnit('f');
 
   await getReminderSettings();
   initialized = true;
