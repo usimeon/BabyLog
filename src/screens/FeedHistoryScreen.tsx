@@ -1,8 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../app/navigation';
+import { useFocusEffect } from '@react-navigation/native';
 import { Button, Card, Row, SelectPill } from '../components/ui';
 import { listFeeds, softDeleteFeed } from '../db/feedRepo';
 import { useAppContext } from '../context/AppContext';
@@ -13,7 +11,6 @@ import { recalculateReminder } from '../services/reminderCoordinator';
 const filters = ['all', 'breast', 'bottle', 'formula', 'solids'] as const;
 
 export const FeedHistoryScreen = () => {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { babyId, amountUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } = useAppContext();
   const [typeFilter, setTypeFilter] = useState<(typeof filters)[number]>('all');
   const [items, setItems] = useState<any[]>([]);
@@ -69,11 +66,7 @@ export const FeedHistoryScreen = () => {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable
-            style={styles.row}
-            onPress={() => navigation.navigate('AddFeed', { feedId: item.id })}
-            onLongPress={() => onDelete(item.id)}
-          >
+          <Pressable style={styles.row} onLongPress={() => onDelete(item.id)}>
             <Text style={styles.type}>{item.type.toUpperCase()}</Text>
             <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
             <Text style={styles.sub}>
