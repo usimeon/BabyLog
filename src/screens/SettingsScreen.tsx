@@ -108,7 +108,7 @@ export const SettingsScreen = () => {
       await seedDemoData(babyId);
       await syncNow();
       bumpDataVersion();
-      Alert.alert('Demo data added', 'Sample feeds and measurements were generated.');
+      Alert.alert('Demo data added', 'Generated ~6 months of sample tracking data for charts.');
     } catch (error: any) {
       Alert.alert('Seed failed', error?.message ?? 'Unknown error');
     }
