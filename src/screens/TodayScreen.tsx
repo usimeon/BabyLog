@@ -9,10 +9,12 @@ import { RootStackParamList } from '../app/navigation';
 import { formatTime } from '../utils/time';
 import { mlToDisplay } from '../utils/units';
 import { FeedSummary } from '../types/models';
+import { SyncBanner } from '../components/SyncBanner';
 
 export const TodayScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, reminderSettings, amountUnit, syncNow } = useAppContext();
+  const { babyId, reminderSettings, amountUnit, syncNow, syncState, syncError, lastSyncAt, supabaseEnabled } =
+    useAppContext();
   const [summary, setSummary] = useState<FeedSummary>({
     lastFeedTime: undefined as string | undefined,
     nextReminderTime: undefined as string | undefined,
@@ -35,6 +37,12 @@ export const TodayScreen = () => {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
+        <SyncBanner
+          syncState={syncState}
+          syncError={syncError}
+          lastSyncAt={lastSyncAt}
+          enabled={supabaseEnabled}
+        />
         <Card title="Today">
           <Text style={styles.valueLabel}>Last feed</Text>
           <Text style={styles.value}>{formatTime(summary.lastFeedTime)}</Text>

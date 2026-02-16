@@ -68,7 +68,13 @@ If these env vars are missing, app still works fully local/offline.
 npm run typecheck
 ```
 
-## 5) Run on iOS simulator
+## 5) Run tests
+
+```bash
+npm test
+```
+
+## 6) Run on iOS simulator
 
 ```bash
 npm run ios
@@ -119,6 +125,11 @@ Excel sheets:
 - Background sync on app launch + app foreground
 - LWW conflict handling (`updated_at`)
 - RLS in Supabase ensures users only access their own data
+- Sync status banner shows in Today/Settings with last successful sync time
+
+### QA helper
+- `Settings -> QA Tools -> Seed Demo Data` creates sample feeds/measurements quickly
+- `Settings -> QA Tools -> Clear Feed + Measurement Data` resets local history
 
 ## Notes
 - Canonical storage units:

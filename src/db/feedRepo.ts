@@ -1,7 +1,8 @@
 import { FeedEvent, FeedSummary } from '../types/models';
 import { createId } from '../utils/id';
-import { addHours, endOfDay, hoursBetween, nowIso, startOfDay } from '../utils/time';
+import { addHours, endOfDay, nowIso, startOfDay } from '../utils/time';
 import { getAll, getOne, runSql } from './client';
+import { averageIntervalHoursFromTimestamps, intervalTrendPointsFromAscending } from './feedAnalytics';
 
 export type FeedInput = {
   timestamp: string;
@@ -126,16 +127,7 @@ export const calculateFeedSummary = async (
     [babyId, new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()],
   );
 
-  let avgInterval = 0;
-  if (recentFeeds.length >= 2) {
-    let totalHours = 0;
-    let intervals = 0;
-    for (let i = 0; i < recentFeeds.length - 1; i += 1) {
-      totalHours += hoursBetween(recentFeeds[i].timestamp, recentFeeds[i + 1].timestamp);
-      intervals += 1;
-    }
-    avgInterval = intervals ? totalHours / intervals : 0;
-  }
+  const avgInterval = averageIntervalHoursFromTimestamps(recentFeeds.map((x) => x.timestamp));
 
   return {
     lastFeedTime: lastFeed?.timestamp,
@@ -171,16 +163,7 @@ export const intervalTrend = async (babyId: string, days: number) => {
     [babyId, new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()],
   );
 
-  const points: Array<{ x: string; hours: number }> = [];
-
-  for (let i = 1; i < feeds.length; i += 1) {
-    points.push({
-      x: feeds[i].timestamp,
-      hours: hoursBetween(feeds[i].timestamp, feeds[i - 1].timestamp),
-    });
-  }
-
-  return points;
+  return intervalTrendPointsFromAscending(feeds.map((x) => x.timestamp));
 };
 
 export const feedRowsForRange = async (babyId: string, from: string, to: string) => {

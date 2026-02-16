@@ -10,6 +10,8 @@ import { DateRange } from '../types/models';
 import { presetDateRange } from '../utils/dateRange';
 import { formatDateTime } from '../utils/time';
 import { signOut } from '../supabase/auth';
+import { seedDemoData, clearDemoData } from '../services/seed';
+import { SyncBanner } from '../components/SyncBanner';
 
 export const SettingsScreen = () => {
   const {
@@ -23,6 +25,9 @@ export const SettingsScreen = () => {
     session,
     supabaseEnabled,
     syncNow,
+    syncState,
+    syncError,
+    lastSyncAt,
   } = useAppContext();
 
   const [intervalHours, setIntervalHours] = useState(String(reminderSettings.intervalHours));
@@ -96,9 +101,36 @@ export const SettingsScreen = () => {
     }
   };
 
+  const onSeedData = async () => {
+    try {
+      await clearDemoData(babyId);
+      await seedDemoData(babyId);
+      await syncNow();
+      Alert.alert('Demo data added', 'Sample feeds and measurements were generated.');
+    } catch (error: any) {
+      Alert.alert('Seed failed', error?.message ?? 'Unknown error');
+    }
+  };
+
+  const onClearData = async () => {
+    try {
+      await clearDemoData(babyId);
+      await syncNow();
+      Alert.alert('Data cleared', 'Feed and measurement records were removed.');
+    } catch (error: any) {
+      Alert.alert('Clear failed', error?.message ?? 'Unknown error');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
+        <SyncBanner
+          syncState={syncState}
+          syncError={syncError}
+          lastSyncAt={lastSyncAt}
+          enabled={supabaseEnabled}
+        />
         <Card title="Units">
           <Label>Amount unit</Label>
           <Row>
@@ -167,6 +199,12 @@ export const SettingsScreen = () => {
           <Text style={styles.sub}>{session ? `Signed in as ${session.user.email}` : 'Not signed in'}</Text>
           <Button title="Sync Now" onPress={syncNow} />
           {session ? <Button title="Sign Out" variant="danger" onPress={onSignOut} /> : null}
+        </Card>
+
+        <Card title="QA Tools">
+          <Text style={styles.sub}>Use sample data to validate reminders, charts, and exports quickly.</Text>
+          <Button title="Seed Demo Data" onPress={onSeedData} />
+          <Button title="Clear Feed + Measurement Data" variant="danger" onPress={onClearData} />
         </Card>
       </ScrollView>
     </SafeAreaView>

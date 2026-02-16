@@ -5,6 +5,7 @@ import { initDatabase } from '../db';
 import { getOrCreateDefaultBaby } from '../db/babyRepo';
 import {
   getAmountUnit,
+  getLastSyncAt,
   getReminderSettings,
   getWeightUnit,
   setAuthUserId,
@@ -25,6 +26,9 @@ type AppContextValue = {
   reminderSettings: ReminderSettings;
   session: Session | null;
   supabaseEnabled: boolean;
+  syncState: 'idle' | 'syncing' | 'success' | 'error';
+  syncError: string | null;
+  lastSyncAt: string | null;
   refreshAppState: () => Promise<void>;
   updateAmountUnit: (unit: 'ml' | 'oz') => Promise<void>;
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
@@ -50,6 +54,9 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('kg');
   const [reminderSettings, setReminderSettingsState] = useState<ReminderSettings>(defaultReminder);
   const [session, setSession] = useState<Session | null>(null);
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
 
   const refreshSession = async () => {
     const next = await getCurrentSession();
@@ -62,11 +69,13 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const nextAmountUnit = (await getAmountUnit()) as 'ml' | 'oz';
     const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
     const nextReminder = await getReminderSettings();
+    const nextLastSyncAt = await getLastSyncAt();
 
     setBabyId(baby.id);
     setAmountUnitState(nextAmountUnit);
     setWeightUnitState(nextWeightUnit);
     setReminderSettingsState(nextReminder);
+    setLastSyncAtState(nextLastSyncAt);
   };
 
   useEffect(() => {
@@ -89,8 +98,16 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
 
   const syncNow = async () => {
     if (!isSupabaseConfigured) return;
-    await syncAll();
-    await refreshAppState();
+    try {
+      setSyncState('syncing');
+      setSyncError(null);
+      await syncAll();
+      await refreshAppState();
+      setSyncState('success');
+    } catch (error: any) {
+      setSyncState('error');
+      setSyncError(error?.message ?? 'Sync failed');
+    }
   };
 
   useEffect(() => {
@@ -131,6 +148,9 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       reminderSettings,
       session,
       supabaseEnabled: isSupabaseConfigured,
+      syncState,
+      syncError,
+      lastSyncAt,
       refreshAppState,
       updateAmountUnit,
       updateWeightUnit,
@@ -138,7 +158,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       refreshSession,
       syncNow,
     }),
-    [initialized, babyId, amountUnit, weightUnit, reminderSettings, session],
+    [initialized, babyId, amountUnit, weightUnit, reminderSettings, session, syncState, syncError, lastSyncAt],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
