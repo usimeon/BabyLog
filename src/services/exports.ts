@@ -5,8 +5,10 @@ import * as Print from 'expo-print';
 import * as XLSX from 'xlsx';
 import { DateRange } from '../types/models';
 import { getOrCreateDefaultBaby } from '../db/babyRepo';
+import { diaperRowsForRange } from '../db/diaperRepo';
 import { feedRowsForRange } from '../db/feedRepo';
 import { measurementRowsForRange } from '../db/measurementRepo';
+import { temperatureRowsForRange } from '../db/temperatureRepo';
 import { getChartRef } from './chartCaptureRegistry';
 
 const fileNameDatePart = () => new Date().toISOString().replace(/[:.]/g, '-');
@@ -60,6 +62,12 @@ export const exportPdf = async (dateRange: DateRange) => {
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
+  const temperatures = await temperatureRowsForRange(
+    baby.id,
+    dateRange.start.toISOString(),
+    dateRange.end.toISOString(),
+  );
+  const diapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
 
   const feedImageRef = getChartRef('feeds');
   const weightImageRef = getChartRef('weight');
@@ -101,6 +109,8 @@ export const exportPdf = async (dateRange: DateRange) => {
           <tr><th>Total amount (ml)</th><td>${summary.totalMl.toFixed(1)}</td></tr>
           <tr><th>Average amount per feed (ml)</th><td>${summary.avgMl.toFixed(1)}</td></tr>
           <tr><th>Measurements</th><td>${measurements.length}</td></tr>
+          <tr><th>Temperature logs</th><td>${temperatures.length}</td></tr>
+          <tr><th>Poop/Pee logs</th><td>${diapers.length}</td></tr>
         </table>
 
         ${feedChartDataUri ? `<h2>Feed chart</h2><img src="${feedChartDataUri}" />` : ''}
@@ -122,6 +132,12 @@ export const exportExcel = async (dateRange: DateRange) => {
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
+  const temperatures = await temperatureRowsForRange(
+    baby.id,
+    dateRange.start.toISOString(),
+    dateRange.end.toISOString(),
+  );
+  const diapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
 
   const dailySummaryMap = new Map<string, number>();
   feeds.forEach((feed) => {
@@ -156,8 +172,26 @@ export const exportExcel = async (dateRange: DateRange) => {
     total_ml: Number(totalMl.toFixed(2)),
   }));
 
+  const temperatureData = temperatures.map((t) => ({
+    id: t.id,
+    timestamp: t.timestamp,
+    temperature_c: t.temperature_c,
+    notes: t.notes ?? '',
+  }));
+
+  const diaperData = diapers.map((d) => ({
+    id: d.id,
+    timestamp: d.timestamp,
+    had_pee: d.had_pee ? 1 : 0,
+    had_poop: d.had_poop ? 1 : 0,
+    poop_size: d.poop_size ?? '',
+    notes: d.notes ?? '',
+  }));
+
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(feedData), 'FeedEvents');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(measurementData), 'Measurements');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(temperatureData), 'TemperatureLogs');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(diaperData), 'DiaperLogs');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dailySummaryData), 'DailySummary');
 
   const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });

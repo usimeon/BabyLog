@@ -8,6 +8,7 @@ import { TodayScreen } from '../screens/TodayScreen';
 import { AddFeedScreen } from '../screens/AddFeedScreen';
 import { FeedHistoryScreen } from '../screens/FeedHistoryScreen';
 import { MeasurementsScreen } from '../screens/MeasurementsScreen';
+import { CareScreen } from '../screens/CareScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
@@ -22,6 +23,7 @@ export type MainTabParamList = {
   Today: undefined;
   FeedHistory: undefined;
   Measurements: undefined;
+  Care: undefined;
   Charts: undefined;
   Settings: undefined;
 };
@@ -34,6 +36,7 @@ const MainTabs = () => (
     <Tabs.Screen name="Today" component={TodayScreen} options={{ title: 'Today' }} />
     <Tabs.Screen name="FeedHistory" component={FeedHistoryScreen} options={{ title: 'Feed History' }} />
     <Tabs.Screen name="Measurements" component={MeasurementsScreen} options={{ title: 'Measurements' }} />
+    <Tabs.Screen name="Care" component={CareScreen} options={{ title: 'Care' }} />
     <Tabs.Screen name="Charts" component={ChartsScreen} options={{ title: 'Charts' }} />
     <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
   </Tabs.Navigator>

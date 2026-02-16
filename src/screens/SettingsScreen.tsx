@@ -119,7 +119,7 @@ export const SettingsScreen = () => {
       await clearDemoData(babyId);
       await syncNow();
       bumpDataVersion();
-      Alert.alert('Data cleared', 'Feed and measurement records were removed.');
+      Alert.alert('Data cleared', 'Feed, measurement, temperature, and diaper records were removed.');
     } catch (error: any) {
       Alert.alert('Clear failed', error?.message ?? 'Unknown error');
     }
@@ -205,9 +205,9 @@ export const SettingsScreen = () => {
         </Card>
 
         <Card title="QA Tools">
-          <Text style={styles.sub}>Use sample data to validate reminders, charts, and exports quickly.</Text>
+          <Text style={styles.sub}>Use sample data to validate reminders, charts, care logs, and exports quickly.</Text>
           <Button title="Seed Demo Data" onPress={onSeedData} />
-          <Button title="Clear Feed + Measurement Data" variant="danger" onPress={onClearData} />
+          <Button title="Clear Local Tracking Data" variant="danger" onPress={onClearData} />
         </Card>
       </ScrollView>
     </SafeAreaView>

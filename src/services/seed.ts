@@ -1,10 +1,14 @@
 import { addFeed } from '../db/feedRepo';
 import { addMeasurement } from '../db/measurementRepo';
+import { addTemperatureLog } from '../db/temperatureRepo';
+import { addDiaperLog } from '../db/diaperRepo';
 import { runSql } from '../db/client';
 
 export const clearDemoData = async (babyId: string) => {
   await runSql('DELETE FROM feed_events WHERE baby_id = ?;', [babyId]);
   await runSql('DELETE FROM measurements WHERE baby_id = ?;', [babyId]);
+  await runSql('DELETE FROM temperature_logs WHERE baby_id = ?;', [babyId]);
+  await runSql('DELETE FROM diaper_logs WHERE baby_id = ?;', [babyId]);
 };
 
 export const seedDemoData = async (babyId: string) => {
@@ -32,5 +36,24 @@ export const seedDemoData = async (babyId: string) => {
       notes: i === 0 ? 'Latest check' : null,
     });
   }
-};
 
+  for (let i = 0; i < 6; i += 1) {
+    const at = new Date(now.getTime() - i * 6 * 60 * 60 * 1000);
+    await addTemperatureLog(babyId, {
+      timestamp: at.toISOString(),
+      temperature_c: 36.7 + (i % 3) * 0.2,
+      notes: i === 0 ? 'Evening check' : null,
+    });
+  }
+
+  for (let i = 0; i < 8; i += 1) {
+    const at = new Date(now.getTime() - i * 4 * 60 * 60 * 1000);
+    await addDiaperLog(babyId, {
+      timestamp: at.toISOString(),
+      had_pee: 1,
+      had_poop: i % 2 === 0 ? 1 : 0,
+      poop_size: i % 3 === 0 ? 'small' : i % 3 === 1 ? 'medium' : 'large',
+      notes: null,
+    });
+  }
+};

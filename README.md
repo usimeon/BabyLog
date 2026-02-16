@@ -108,6 +108,11 @@ npm run ios
 - Fields: timestamp, weight, length, head circumference, notes
 - List + weight chart
 
+### Care logs
+- Temperature tracking (timestamp, temperature C, notes)
+- Poop/Pee tracking (timestamp, pee yes/no, poop yes/no, poop size small/medium/large, notes)
+- `Care` tab provides add + history + delete
+
 ### Reminders
 - Settings:
   - enabled
@@ -141,7 +146,7 @@ Excel sheets:
 
 ### QA helper
 - `Settings -> QA Tools -> Seed Demo Data` creates sample feeds/measurements quickly
-- `Settings -> QA Tools -> Clear Feed + Measurement Data` resets local history
+- `Settings -> QA Tools -> Clear Local Tracking Data` resets local history
 
 ## Notes
 - Canonical storage units:

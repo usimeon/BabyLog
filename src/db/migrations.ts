@@ -62,6 +62,44 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_measurements_dirty ON measurements (dirty);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS temperature_logs (
+        local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        baby_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        temperature_c REAL NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        dirty INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_temperature_logs_baby_timestamp ON temperature_logs (baby_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_temperature_logs_dirty ON temperature_logs (dirty);
+
+      CREATE TABLE IF NOT EXISTS diaper_logs (
+        local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        baby_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        had_pee INTEGER NOT NULL DEFAULT 0,
+        had_poop INTEGER NOT NULL DEFAULT 0,
+        poop_size TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        dirty INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_diaper_logs_baby_timestamp ON diaper_logs (baby_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_diaper_logs_dirty ON diaper_logs (dirty);
+    `,
+  },
 ];
 
 export const migrate = async () => {

@@ -22,7 +22,9 @@ type RemoteBabyRow = {
   deleted_at?: string | null;
 };
 
-const markClean = async (table: 'babies' | 'feed_events' | 'measurements', ids: string[]) => {
+type SyncTable = 'babies' | 'feed_events' | 'measurements' | 'temperature_logs' | 'diaper_logs';
+
+const markClean = async (table: SyncTable, ids: string[]) => {
   if (!ids.length) return;
   const placeholders = ids.map(() => '?').join(',');
   await runSql(`UPDATE ${table} SET dirty = 0 WHERE id IN (${placeholders});`, ids);
@@ -38,16 +40,27 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
     if (remoteIds.has(baby.id)) continue;
     if (baby.dirty !== 1) continue;
 
-    const feedCount = await getOne<{ count: number }>(
-      'SELECT COUNT(*) as count FROM feed_events WHERE baby_id = ? AND deleted_at IS NULL;',
-      [baby.id],
-    );
-    const measurementCount = await getOne<{ count: number }>(
-      'SELECT COUNT(*) as count FROM measurements WHERE baby_id = ? AND deleted_at IS NULL;',
-      [baby.id],
-    );
+    const [feedCount, measurementCount, tempCount, diaperCount] = await Promise.all([
+      getOne<{ count: number }>('SELECT COUNT(*) as count FROM feed_events WHERE baby_id = ? AND deleted_at IS NULL;', [
+        baby.id,
+      ]),
+      getOne<{ count: number }>('SELECT COUNT(*) as count FROM measurements WHERE baby_id = ? AND deleted_at IS NULL;', [
+        baby.id,
+      ]),
+      getOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM temperature_logs WHERE baby_id = ? AND deleted_at IS NULL;',
+        [baby.id],
+      ),
+      getOne<{ count: number }>('SELECT COUNT(*) as count FROM diaper_logs WHERE baby_id = ? AND deleted_at IS NULL;', [
+        baby.id,
+      ]),
+    ]);
 
-    const hasData = (feedCount?.count ?? 0) > 0 || (measurementCount?.count ?? 0) > 0;
+    const hasData =
+      (feedCount?.count ?? 0) > 0 ||
+      (measurementCount?.count ?? 0) > 0 ||
+      (tempCount?.count ?? 0) > 0 ||
+      (diaperCount?.count ?? 0) > 0;
 
     // A reinstall can create a blank local baby before first pull; drop that placeholder to avoid duplicate babies.
     if (!hasData) {
@@ -63,8 +76,12 @@ const pushDirtyRows = async (userId: string) => {
   const dirtyBabies = await getAll<any>('SELECT * FROM babies WHERE dirty = 1;');
   const dirtyFeeds = await getAll<any>('SELECT * FROM feed_events WHERE dirty = 1;');
   const dirtyMeasurements = await getAll<any>('SELECT * FROM measurements WHERE dirty = 1;');
+  const dirtyTemperatures = await getAll<any>('SELECT * FROM temperature_logs WHERE dirty = 1;');
+  const dirtyDiapers = await getAll<any>('SELECT * FROM diaper_logs WHERE dirty = 1;');
 
-  console.log(`[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length}`);
+  console.log(
+    `[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length} temps=${dirtyTemperatures.length} diapers=${dirtyDiapers.length}`,
+  );
 
   if (dirtyBabies.length) {
     const payload = dirtyBabies.map((row) => ({
@@ -122,9 +139,47 @@ const pushDirtyRows = async (userId: string) => {
     if (error) throw error;
     await markClean('measurements', dirtyMeasurements.map((x) => x.id));
   }
+
+  if (dirtyTemperatures.length) {
+    const payload = dirtyTemperatures.map((row) => ({
+      id: row.id,
+      user_id: userId,
+      baby_id: row.baby_id,
+      timestamp: row.timestamp,
+      temperature_c: row.temperature_c,
+      notes: row.notes,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      deleted_at: row.deleted_at,
+    }));
+
+    const { error } = await supabase.from('temperature_logs').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    await markClean('temperature_logs', dirtyTemperatures.map((x) => x.id));
+  }
+
+  if (dirtyDiapers.length) {
+    const payload = dirtyDiapers.map((row) => ({
+      id: row.id,
+      user_id: userId,
+      baby_id: row.baby_id,
+      timestamp: row.timestamp,
+      had_pee: Boolean(row.had_pee),
+      had_poop: Boolean(row.had_poop),
+      poop_size: row.poop_size,
+      notes: row.notes,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      deleted_at: row.deleted_at,
+    }));
+
+    const { error } = await supabase.from('diaper_logs').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    await markClean('diaper_logs', dirtyDiapers.map((x) => x.id));
+  }
 };
 
-const applyRemoteRow = async (table: 'babies' | 'feed_events' | 'measurements', row: any) => {
+const applyRemoteRow = async (table: SyncTable, row: any) => {
   const local = await getOne<SyncRow>(`SELECT id, updated_at FROM ${table} WHERE id = ? LIMIT 1;`, [row.id]);
   if (local && new Date(local.updated_at).getTime() >= new Date(row.updated_at).getTime()) {
     return;
@@ -181,17 +236,79 @@ const applyRemoteRow = async (table: 'babies' | 'feed_events' | 'measurements', 
     return;
   }
 
+  if (table === 'measurements') {
+    await runSql(
+      `INSERT INTO measurements(
+        id, baby_id, timestamp, weight_kg, length_cm, head_circumference_cm, notes,
+        created_at, updated_at, deleted_at, dirty
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        baby_id = excluded.baby_id,
+        timestamp = excluded.timestamp,
+        weight_kg = excluded.weight_kg,
+        length_cm = excluded.length_cm,
+        head_circumference_cm = excluded.head_circumference_cm,
+        notes = excluded.notes,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        deleted_at = excluded.deleted_at,
+        dirty = 0;`,
+      [
+        row.id,
+        row.baby_id,
+        row.timestamp,
+        row.weight_kg,
+        row.length_cm,
+        row.head_circumference_cm,
+        row.notes,
+        row.created_at,
+        row.updated_at,
+        row.deleted_at,
+      ],
+    );
+    return;
+  }
+
+  if (table === 'temperature_logs') {
+    await runSql(
+      `INSERT INTO temperature_logs(
+        id, baby_id, timestamp, temperature_c, notes,
+        created_at, updated_at, deleted_at, dirty
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        baby_id = excluded.baby_id,
+        timestamp = excluded.timestamp,
+        temperature_c = excluded.temperature_c,
+        notes = excluded.notes,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        deleted_at = excluded.deleted_at,
+        dirty = 0;`,
+      [
+        row.id,
+        row.baby_id,
+        row.timestamp,
+        row.temperature_c,
+        row.notes,
+        row.created_at,
+        row.updated_at,
+        row.deleted_at,
+      ],
+    );
+    return;
+  }
+
   await runSql(
-    `INSERT INTO measurements(
-      id, baby_id, timestamp, weight_kg, length_cm, head_circumference_cm, notes,
+    `INSERT INTO diaper_logs(
+      id, baby_id, timestamp, had_pee, had_poop, poop_size, notes,
       created_at, updated_at, deleted_at, dirty
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     ON CONFLICT(id) DO UPDATE SET
       baby_id = excluded.baby_id,
       timestamp = excluded.timestamp,
-      weight_kg = excluded.weight_kg,
-      length_cm = excluded.length_cm,
-      head_circumference_cm = excluded.head_circumference_cm,
+      had_pee = excluded.had_pee,
+      had_poop = excluded.had_poop,
+      poop_size = excluded.poop_size,
       notes = excluded.notes,
       created_at = excluded.created_at,
       updated_at = excluded.updated_at,
@@ -201,9 +318,9 @@ const applyRemoteRow = async (table: 'babies' | 'feed_events' | 'measurements', 
       row.id,
       row.baby_id,
       row.timestamp,
-      row.weight_kg,
-      row.length_cm,
-      row.head_circumference_cm,
+      row.had_pee ? 1 : 0,
+      row.had_poop ? 1 : 0,
+      row.poop_size,
       row.notes,
       row.created_at,
       row.updated_at,
@@ -215,30 +332,35 @@ const applyRemoteRow = async (table: 'babies' | 'feed_events' | 'measurements', 
 const pullRemoteRows = async (userId: string) => {
   if (!supabase) return;
 
-  const [{ data: babies, error: babyErr }, { data: feeds, error: feedErr }, { data: measurements, error: measurementErr }] =
-    await Promise.all([
-      supabase.from('babies').select('*').eq('user_id', userId),
-      supabase.from('feed_events').select('*').eq('user_id', userId),
-      supabase.from('measurements').select('*').eq('user_id', userId),
-    ]);
+  const [
+    { data: babies, error: babyErr },
+    { data: feeds, error: feedErr },
+    { data: measurements, error: measurementErr },
+    { data: temperatures, error: tempErr },
+    { data: diapers, error: diaperErr },
+  ] = await Promise.all([
+    supabase.from('babies').select('*').eq('user_id', userId),
+    supabase.from('feed_events').select('*').eq('user_id', userId),
+    supabase.from('measurements').select('*').eq('user_id', userId),
+    supabase.from('temperature_logs').select('*').eq('user_id', userId),
+    supabase.from('diaper_logs').select('*').eq('user_id', userId),
+  ]);
 
   if (babyErr) throw babyErr;
   if (feedErr) throw feedErr;
   if (measurementErr) throw measurementErr;
+  if (tempErr) throw tempErr;
+  if (diaperErr) throw diaperErr;
 
-  console.log(`[sync] pulling remote rows babies=${babies.length} feeds=${feeds.length} measurements=${measurements.length}`);
+  console.log(
+    `[sync] pulling remote rows babies=${babies.length} feeds=${feeds.length} measurements=${measurements.length} temps=${temperatures.length} diapers=${diapers.length}`,
+  );
 
-  for (const baby of babies) {
-    await applyRemoteRow('babies', baby);
-  }
-
-  for (const feed of feeds) {
-    await applyRemoteRow('feed_events', feed);
-  }
-
-  for (const measurement of measurements) {
-    await applyRemoteRow('measurements', measurement);
-  }
+  for (const baby of babies) await applyRemoteRow('babies', baby);
+  for (const feed of feeds) await applyRemoteRow('feed_events', feed);
+  for (const measurement of measurements) await applyRemoteRow('measurements', measurement);
+  for (const temp of temperatures) await applyRemoteRow('temperature_logs', temp);
+  for (const diaper of diapers) await applyRemoteRow('diaper_logs', diaper);
 };
 
 const fetchRemoteBabies = async (userId: string): Promise<RemoteBabyRow[]> => {

@@ -3,6 +3,7 @@ export type FeedSide = 'left' | 'right' | 'both' | 'none';
 
 export type AmountUnit = 'ml' | 'oz';
 export type WeightUnit = 'kg' | 'lb';
+export type PoopSize = 'small' | 'medium' | 'large';
 
 export interface BabyProfile {
   id: string;
@@ -49,6 +50,32 @@ export interface ReminderSettings {
   quietHoursStart?: string | null;
   quietHoursEnd?: string | null;
   allowDuringQuietHours: boolean;
+}
+
+export interface TemperatureLog {
+  id: string;
+  baby_id: string;
+  timestamp: string;
+  temperature_c: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  dirty: number;
+}
+
+export interface DiaperLog {
+  id: string;
+  baby_id: string;
+  timestamp: string;
+  had_pee: number;
+  had_poop: number;
+  poop_size?: PoopSize | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  dirty: number;
 }
 
 export interface DateRange {
