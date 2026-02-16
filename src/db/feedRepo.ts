@@ -142,11 +142,12 @@ export const dailyFeedTotals = async (babyId: string, days: number) => {
   start.setDate(start.getDate() - (days - 1));
 
   return getAll<{ day: string; total_ml: number }>(
-    `SELECT substr(timestamp, 1, 10) AS day, COALESCE(SUM(amount_ml), 0) AS total_ml
+    `SELECT substr(timestamp, 1, 10) AS day, COALESCE(AVG(amount_ml), 0) AS total_ml
      FROM feed_events
      WHERE baby_id = ?
        AND deleted_at IS NULL
        AND type IN ('bottle', 'formula')
+       AND amount_ml IS NOT NULL
        AND timestamp >= ?
      GROUP BY day
      ORDER BY day ASC;`,
@@ -161,7 +162,7 @@ export const monthlyFeedTotals = async (babyId: string, months: number) => {
   start.setMonth(start.getMonth() - (months - 1));
 
   return getAll<{ month: string; total_ml: number }>(
-    `SELECT substr(timestamp, 1, 7) AS month, COALESCE(SUM(amount_ml), 0) AS total_ml
+    `SELECT substr(timestamp, 1, 7) AS month, COALESCE(AVG(amount_ml), 0) AS total_ml
      FROM feed_events
      WHERE baby_id = ?
        AND deleted_at IS NULL

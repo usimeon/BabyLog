@@ -62,8 +62,8 @@ export const FeedChartsTab = () => {
 
   const chartTitle = useMemo(() => {
     if (viewMode === 'individual') return `Individual feed amounts (${amountUnit})`;
-    if (viewMode === 'daily') return `Daily feed totals (${amountUnit})`;
-    return `Monthly feed totals (${amountUnit})`;
+    if (viewMode === 'daily') return `Daily average feed amount (${amountUnit})`;
+    return `Monthly average feed amount (${amountUnit})`;
   }, [viewMode, amountUnit]);
 
   const summary = useMemo(() => {
@@ -108,8 +108,14 @@ export const FeedChartsTab = () => {
       <CaptureChart chartId="feeds">
         <Card title={chartTitle}>
           <Text style={styles.meta}>Points: {summary.count}</Text>
-          <Text style={styles.meta}>Total: {summary.total.toFixed(1)} {amountUnit}</Text>
-          <Text style={styles.meta}>Average: {summary.average.toFixed(1)} {amountUnit}</Text>
+          {viewMode === 'individual' ? (
+            <>
+              <Text style={styles.meta}>Total: {summary.total.toFixed(1)} {amountUnit}</Text>
+              <Text style={styles.meta}>Average: {summary.average.toFixed(1)} {amountUnit}</Text>
+            </>
+          ) : (
+            <Text style={styles.meta}>Average across points: {summary.average.toFixed(1)} {amountUnit}</Text>
+          )}
           {chartKind === 'bar' ? <BarChart data={series} /> : <LineChart data={series} color="#0ea5e9" />}
         </Card>
 
