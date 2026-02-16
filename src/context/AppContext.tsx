@@ -5,12 +5,14 @@ import { initDatabase } from '../db';
 import { getOrCreateDefaultBaby } from '../db/babyRepo';
 import {
   getAmountUnit,
+  getAiEnabled,
   getLastSyncAt,
   getReminderSettings,
   getTempUnit,
   getWeightUnit,
   setAuthUserId,
   setAmountUnit,
+  setAiEnabled,
   setTempUnit,
   setWeightUnit,
   saveReminderSettings,
@@ -27,6 +29,7 @@ type AppContextValue = {
   weightUnit: 'kg' | 'lb';
   tempUnit: 'c' | 'f';
   reminderSettings: ReminderSettings;
+  aiEnabled: boolean;
   session: Session | null;
   supabaseEnabled: boolean;
   syncState: 'idle' | 'syncing' | 'success' | 'error';
@@ -38,6 +41,7 @@ type AppContextValue = {
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
   updateTempUnit: (unit: 'c' | 'f') => Promise<void>;
   updateReminderSettings: (settings: ReminderSettings) => Promise<void>;
+  updateAiEnabled: (enabled: boolean) => Promise<void>;
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
   bumpDataVersion: () => void;
@@ -60,6 +64,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('lb');
   const [tempUnit, setTempUnitState] = useState<'c' | 'f'>('f');
   const [reminderSettings, setReminderSettingsState] = useState<ReminderSettings>(defaultReminder);
+  const [aiEnabled, setAiEnabledState] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -78,6 +83,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
     const nextTempUnit = (await getTempUnit()) as 'c' | 'f';
     const nextReminder = await getReminderSettings();
+    const nextAiEnabled = await getAiEnabled();
     const nextLastSyncAt = await getLastSyncAt();
 
     setBabyId(baby.id);
@@ -85,6 +91,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setWeightUnitState(nextWeightUnit);
     setTempUnitState(nextTempUnit);
     setReminderSettingsState(nextReminder);
+    setAiEnabledState(nextAiEnabled);
     setLastSyncAtState(nextLastSyncAt);
   };
 
@@ -159,6 +166,11 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setReminderSettingsState(settings);
   };
 
+  const updateAiEnabled = async (enabled: boolean) => {
+    await setAiEnabled(enabled);
+    setAiEnabledState(enabled);
+  };
+
   const value = useMemo<AppContextValue>(
     () => ({
       initialized,
@@ -167,6 +179,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       weightUnit,
       tempUnit,
       reminderSettings,
+      aiEnabled,
       session,
       supabaseEnabled: isSupabaseConfigured,
       syncState,
@@ -178,6 +191,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       updateWeightUnit,
       updateTempUnit,
       updateReminderSettings,
+      updateAiEnabled,
       refreshSession,
       syncNow,
       bumpDataVersion,
@@ -189,6 +203,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       weightUnit,
       tempUnit,
       reminderSettings,
+      aiEnabled,
       session,
       syncState,
       syncError,

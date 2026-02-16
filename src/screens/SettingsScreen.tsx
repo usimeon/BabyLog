@@ -20,10 +20,12 @@ export const SettingsScreen = () => {
     weightUnit,
     tempUnit,
     reminderSettings,
+    aiEnabled,
     updateAmountUnit,
     updateWeightUnit,
     updateTempUnit,
     updateReminderSettings,
+    updateAiEnabled,
     session,
     supabaseEnabled,
     syncNow,
@@ -180,6 +182,16 @@ export const SettingsScreen = () => {
           </Row>
 
           <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled)} />
+        </Card>
+
+        <Card title="AI Insights">
+          <Row>
+            <Text style={styles.label}>Enable AI summaries</Text>
+            <Switch value={aiEnabled} onValueChange={updateAiEnabled} />
+          </Row>
+          <Text style={styles.sub}>
+            Uses optional endpoint `EXPO_PUBLIC_AI_SUMMARY_ENDPOINT`; falls back to local summary logic.
+          </Text>
         </Card>
 
         <Card title="Export">

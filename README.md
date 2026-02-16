@@ -93,6 +93,16 @@ Key files:
 - `supabase/config.toml`
 - `supabase/migrations/20260216010000_init_babylog.sql`
 
+## 3.2) Optional AI summary endpoint
+
+Set this env var to enable remote AI summarization:
+
+```bash
+EXPO_PUBLIC_AI_SUMMARY_ENDPOINT=https://YOUR_BACKEND/ai-summary
+```
+
+If unset or unavailable, the app uses a local fallback summary generator.
+
 ## 4) Run typecheck
 
 ```bash
@@ -144,6 +154,13 @@ npm run ios
   - Today-at-a-glance counters
   - Safety alerts (missed feed interval, high temp, diaper gap)
   - 6-week activity heatmap
+
+### AI insights
+- `Today` includes an AI summary card with:
+  - generated bullets from recent logs
+  - source indicator (remote endpoint vs local fallback)
+  - informational-only disclaimer
+- Toggle in `Settings -> AI Insights`
 
 ### Reminders
 - Settings:

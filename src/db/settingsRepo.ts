@@ -10,6 +10,8 @@ const AUTH_USER_KEY = 'auth_user_id';
 const REMINDER_NOTIFICATION_ID = 'reminder_notification_id';
 const LAST_SYNC_AT = 'last_sync_at';
 const PINNED_LOGS_KEY = 'pinned_logs';
+const AI_ENABLED_KEY = 'ai_enabled';
+const AI_LAST_SUMMARY_KEY = 'ai_last_summary';
 
 const defaults: ReminderSettings = {
   enabled: false,
@@ -84,4 +86,15 @@ export const getPinnedLogs = async (): Promise<string[]> => {
 
 export const setPinnedLogs = async (keys: string[]) => {
   await setSetting(PINNED_LOGS_KEY, JSON.stringify(keys));
+};
+
+export const getAiEnabled = async () => (await getSetting(AI_ENABLED_KEY)) !== '0';
+export const setAiEnabled = async (enabled: boolean) => setSetting(AI_ENABLED_KEY, enabled ? '1' : '0');
+
+export const getAiLastSummary = async () => {
+  return (await getSetting(AI_LAST_SUMMARY_KEY)) || null;
+};
+
+export const setAiLastSummary = async (value: string) => {
+  await setSetting(AI_LAST_SUMMARY_KEY, value);
 };

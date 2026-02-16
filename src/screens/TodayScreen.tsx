@@ -11,11 +11,22 @@ import { formatTime } from '../utils/time';
 import { mlToDisplay } from '../utils/units';
 import { FeedSummary } from '../types/models';
 import { SyncBanner } from '../components/SyncBanner';
+import { AiSummary, generateAiSummary, getCachedAiSummary } from '../services/aiInsights';
 
 export const TodayScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, reminderSettings, amountUnit, syncNow, syncState, syncError, lastSyncAt, supabaseEnabled, dataVersion } =
-    useAppContext();
+  const {
+    babyId,
+    reminderSettings,
+    amountUnit,
+    syncNow,
+    syncState,
+    syncError,
+    lastSyncAt,
+    supabaseEnabled,
+    dataVersion,
+    aiEnabled,
+  } = useAppContext();
   const [summary, setSummary] = useState<FeedSummary>({
     lastFeedTime: undefined as string | undefined,
     nextReminderTime: undefined as string | undefined,
@@ -28,6 +39,8 @@ export const TodayScreen = () => {
     avgTempsPerDay: 0,
     feedStreakDays: 0,
   });
+  const [aiSummary, setAiSummary] = useState<AiSummary | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const load = useCallback(async () => {
     const [nextSummary, nextInsights] = await Promise.all([
@@ -36,6 +49,8 @@ export const TodayScreen = () => {
     ]);
     setSummary(nextSummary);
     setInsights(nextInsights);
+    const cached = await getCachedAiSummary();
+    setAiSummary(cached);
   }, [babyId, reminderSettings.intervalHours]);
 
   useFocusEffect(
@@ -48,6 +63,16 @@ export const TodayScreen = () => {
   React.useEffect(() => {
     load();
   }, [dataVersion, load]);
+
+  const onGenerateAiSummary = async () => {
+    try {
+      setAiBusy(true);
+      const summary = await generateAiSummary(babyId);
+      setAiSummary(summary);
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -90,6 +115,32 @@ export const TodayScreen = () => {
           <Text style={styles.streakText}>Feed streak: {insights.feedStreakDays} day(s)</Text>
         </Card>
 
+        <Card title="AI Insights">
+          {aiEnabled ? (
+            <>
+              {aiSummary?.bullets?.length ? (
+                <>
+                  {aiSummary.bullets.map((bullet, idx) => (
+                    <Text key={`${idx}-${bullet.slice(0, 12)}`} style={styles.aiBullet}>
+                      • {bullet}
+                    </Text>
+                  ))}
+                  <Text style={styles.aiMeta}>
+                    {aiSummary.source === 'remote' ? 'AI source: remote' : 'AI source: local fallback'} •{' '}
+                    {new Date(aiSummary.generatedAt).toLocaleString()}
+                  </Text>
+                  <Text style={styles.aiDisclaimer}>{aiSummary.disclaimer}</Text>
+                </>
+              ) : (
+                <Text style={styles.aiMeta}>No AI summary generated yet.</Text>
+              )}
+              <Button title={aiBusy ? 'Generating...' : 'Generate AI Summary'} onPress={onGenerateAiSummary} />
+            </>
+          ) : (
+            <Text style={styles.aiMeta}>AI summaries are disabled in Settings.</Text>
+          )}
+        </Card>
+
         <View style={{ gap: 10 }}>
           <View style={styles.quickRow}>
             <Button title="+ Feed" onPress={() => navigation.navigate('AddEntry', { type: 'feed' })} />
@@ -125,4 +176,7 @@ const styles = StyleSheet.create({
   insightLabel: { fontSize: 11, color: '#64748b', marginTop: 2 },
   streakText: { marginTop: 10, fontSize: 13, color: '#334155', fontWeight: '600' },
   quickRow: { flexDirection: 'row', gap: 8 },
+  aiBullet: { color: '#1f2937', fontSize: 13, marginBottom: 6 },
+  aiMeta: { color: '#475569', fontSize: 12, marginBottom: 8 },
+  aiDisclaimer: { color: '#64748b', fontSize: 11, marginBottom: 10 },
 });
