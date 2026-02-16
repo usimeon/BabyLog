@@ -24,6 +24,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: ['expo-sqlite', '@react-native-community/datetimepicker'],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+    supabasePublishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   },
 });
