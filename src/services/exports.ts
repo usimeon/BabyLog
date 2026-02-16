@@ -11,6 +11,8 @@ import { measurementRowsForRange } from '../db/measurementRepo';
 import { temperatureRowsForRange } from '../db/temperatureRepo';
 import { getChartRef } from './chartCaptureRegistry';
 
+export type ExportKind = 'feed' | 'measurement' | 'temperature' | 'diaper';
+
 const fileNameDatePart = () => new Date().toISOString().replace(/[:.]/g, '-');
 
 const ensureShareAvailable = async (uri: string) => {
@@ -54,20 +56,27 @@ const summaryFromFeeds = (rows: Array<{ amount_ml?: number | null; timestamp: st
   };
 };
 
-export const exportPdf = async (dateRange: DateRange) => {
+export const exportPdf = async (dateRange: DateRange, options?: { kinds?: ExportKind[] }) => {
   const baby = await getOrCreateDefaultBaby();
-  const feeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
-  const measurements = await measurementRowsForRange(
+  const allFeeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMeasurements = await measurementRowsForRange(
     baby.id,
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
-  const temperatures = await temperatureRowsForRange(
+  const allTemperatures = await temperatureRowsForRange(
     baby.id,
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
-  const diapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allDiapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+
+  const kinds = options?.kinds;
+  const include = (kind: ExportKind) => !kinds || kinds.includes(kind);
+  const feeds = include('feed') ? allFeeds : [];
+  const measurements = include('measurement') ? allMeasurements : [];
+  const temperatures = include('temperature') ? allTemperatures : [];
+  const diapers = include('diaper') ? allDiapers : [];
 
   const feedImageRef = getChartRef('feeds');
   const weightImageRef = getChartRef('weight');
@@ -124,20 +133,27 @@ export const exportPdf = async (dateRange: DateRange) => {
   return file.uri;
 };
 
-export const exportExcel = async (dateRange: DateRange) => {
+export const exportExcel = async (dateRange: DateRange, options?: { kinds?: ExportKind[] }) => {
   const baby = await getOrCreateDefaultBaby();
-  const feeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
-  const measurements = await measurementRowsForRange(
+  const allFeeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMeasurements = await measurementRowsForRange(
     baby.id,
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
-  const temperatures = await temperatureRowsForRange(
+  const allTemperatures = await temperatureRowsForRange(
     baby.id,
     dateRange.start.toISOString(),
     dateRange.end.toISOString(),
   );
-  const diapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allDiapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+
+  const kinds = options?.kinds;
+  const include = (kind: ExportKind) => !kinds || kinds.includes(kind);
+  const feeds = include('feed') ? allFeeds : [];
+  const measurements = include('measurement') ? allMeasurements : [];
+  const temperatures = include('temperature') ? allTemperatures : [];
+  const diapers = include('diaper') ? allDiapers : [];
 
   const dailySummaryMap = new Map<string, number>();
   feeds.forEach((feed) => {

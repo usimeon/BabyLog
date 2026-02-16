@@ -9,6 +9,7 @@ const TEMP_UNIT_KEY = 'temp_unit';
 const AUTH_USER_KEY = 'auth_user_id';
 const REMINDER_NOTIFICATION_ID = 'reminder_notification_id';
 const LAST_SYNC_AT = 'last_sync_at';
+const PINNED_LOGS_KEY = 'pinned_logs';
 
 const defaults: ReminderSettings = {
   enabled: false,
@@ -68,3 +69,19 @@ export const getReminderNotificationId = async () => (await getSetting(REMINDER_
 
 export const setLastSyncAt = async (iso: string) => setSetting(LAST_SYNC_AT, iso);
 export const getLastSyncAt = async () => (await getSetting(LAST_SYNC_AT)) || null;
+
+export const getPinnedLogs = async (): Promise<string[]> => {
+  const raw = await getSetting(PINNED_LOGS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x) => typeof x === 'string');
+  } catch {
+    return [];
+  }
+};
+
+export const setPinnedLogs = async (keys: string[]) => {
+  await setSetting(PINNED_LOGS_KEY, JSON.stringify(keys));
+};

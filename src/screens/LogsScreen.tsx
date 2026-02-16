@@ -2,29 +2,34 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../app/navigation';
 import { Button, Card, Input, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
+import { getPinnedLogs, setPinnedLogs } from '../db/settingsRepo';
 import { listFeeds, softDeleteFeed } from '../db/feedRepo';
 import { listMeasurements, softDeleteMeasurement } from '../db/measurementRepo';
 import { listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperatureRepo';
 import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
+import { exportExcel, exportPdf, ExportKind } from '../services/exports';
+import { DateRange } from '../types/models';
 import { formatDateTime, startOfDay } from '../utils/time';
 import { cToDisplay, formatAmount, formatTemp, formatWeight } from '../utils/units';
 
-type LogFilter = 'all' | 'feed' | 'measurement' | 'temperature' | 'diaper';
+type LogFilter = 'all' | 'pinned' | 'feed' | 'measurement' | 'temperature' | 'diaper';
+type EntryKind = 'feed' | 'measurement' | 'temperature' | 'diaper';
 
 type LogEntry = {
   id: string;
-  kind: Exclude<LogFilter, 'all'>;
+  kind: EntryKind;
   timestamp: string;
   title: string;
   subtitle: string;
   notes?: string | null;
 };
 
-const filters: LogFilter[] = ['all', 'feed', 'measurement', 'temperature', 'diaper'];
+const filters: LogFilter[] = ['all', 'pinned', 'feed', 'measurement', 'temperature', 'diaper'];
 
 type GlanceStats = {
   feedsToday: number;
@@ -49,6 +54,7 @@ export const LogsScreen = () => {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [rangePreset, setRangePreset] = useState<RangePreset>('7d');
+  const [pinned, setPinned] = useState<string[]>([]);
   const [glance, setGlance] = useState<GlanceStats>({
     feedsToday: 0,
     diapersToday: 0,
@@ -57,6 +63,13 @@ export const LogsScreen = () => {
   });
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [dailyCounts, setDailyCounts] = useState<Array<{ day: string; count: number }>>([]);
+
+  const logKey = (entry: Pick<LogEntry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
+
+  const loadPinned = useCallback(async () => {
+    const keys = await getPinnedLogs();
+    setPinned(keys);
+  }, []);
 
   const load = useCallback(async () => {
     const [feeds, measurements, temps, diapers] = await Promise.all([
@@ -159,7 +172,8 @@ export const LogsScreen = () => {
       }
     });
     setDailyCounts(Array.from(countsMap.entries()).map(([day, count]) => ({ day, count })));
-  }, [babyId, amountUnit, weightUnit, tempUnit, reminderSettings.enabled, reminderSettings.intervalHours]);
+    await loadPinned();
+  }, [babyId, amountUnit, weightUnit, tempUnit, reminderSettings.enabled, reminderSettings.intervalHours, loadPinned]);
 
   useFocusEffect(
     useCallback(() => {
@@ -171,7 +185,7 @@ export const LogsScreen = () => {
     load();
   }, [dataVersion, load]);
 
-  const visible = useMemo(() => {
+  const visible = useMemo<LogEntry[]>(() => {
     const now = new Date();
     const dayStart = startOfDay(now).getTime();
     const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
@@ -185,14 +199,25 @@ export const LogsScreen = () => {
       return true;
     });
 
-    const typed = filter === 'all' ? byRange : byRange.filter((x) => x.kind === filter);
+    let typed: LogEntry[] = byRange;
+    if (filter === 'pinned') {
+      typed = byRange.filter((x) => pinned.includes(logKey(x)));
+    } else if (filter === 'feed') {
+      typed = byRange.filter((x) => x.kind === 'feed');
+    } else if (filter === 'measurement') {
+      typed = byRange.filter((x) => x.kind === 'measurement');
+    } else if (filter === 'temperature') {
+      typed = byRange.filter((x) => x.kind === 'temperature');
+    } else if (filter === 'diaper') {
+      typed = byRange.filter((x) => x.kind === 'diaper');
+    }
     const query = search.trim().toLowerCase();
     if (!query) return typed;
     return typed.filter((x) => {
       const text = `${x.kind} ${x.title} ${x.subtitle} ${x.notes ?? ''}`.toLowerCase();
       return text.includes(query);
     });
-  }, [entries, filter, search, rangePreset]);
+  }, [entries, filter, search, rangePreset, pinned]);
 
   const filteredCounts = useMemo(() => {
     const counts = {
@@ -201,9 +226,7 @@ export const LogsScreen = () => {
       temperature: 0,
       diaper: 0,
     };
-    for (const item of visible) {
-      counts[item.kind] += 1;
-    }
+    for (const item of visible) counts[item.kind] += 1;
     return counts;
   }, [visible]);
 
@@ -237,6 +260,51 @@ export const LogsScreen = () => {
       await load();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const togglePin = async (entry: LogEntry) => {
+    const key = logKey(entry);
+    const exists = pinned.includes(key);
+    const next = exists ? pinned.filter((x) => x !== key) : [...pinned, key];
+    setPinned(next);
+    await setPinnedLogs(next);
+  };
+
+  const currentDateRange = useMemo<DateRange | null>(() => {
+    if (!visible.length) return null;
+    const end = new Date();
+    let start = startOfDay(end);
+    if (rangePreset === '7d') start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    if (rangePreset === '30d') start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (rangePreset === 'all') {
+      const oldest = visible[visible.length - 1];
+      start = new Date(oldest.timestamp);
+    }
+    return { start, end, label: 'Logs Export' };
+  }, [visible, rangePreset]);
+
+  const exportKinds = useMemo<ExportKind[] | undefined>(() => {
+    if (filter === 'feed') return ['feed'];
+    if (filter === 'measurement') return ['measurement'];
+    if (filter === 'temperature') return ['temperature'];
+    if (filter === 'diaper') return ['diaper'];
+    return undefined;
+  }, [filter]);
+
+  const onExportFiltered = async (kind: 'pdf' | 'excel') => {
+    if (!currentDateRange) {
+      Alert.alert('No data', 'Nothing to export for this filter/range.');
+      return;
+    }
+    try {
+      if (kind === 'pdf') {
+        await exportPdf(currentDateRange, { kinds: exportKinds });
+      } else {
+        await exportExcel(currentDateRange, { kinds: exportKinds });
+      }
+    } catch (error: any) {
+      Alert.alert('Export failed', error?.message ?? 'Unknown error');
     }
   };
 
@@ -363,6 +431,14 @@ export const LogsScreen = () => {
               <Text style={styles.hint}>Tap to edit. Long press to delete.</Text>
             </Card>
 
+            <Card title="Export Filtered View">
+              <Text style={styles.hint}>Exports current range and type filter.</Text>
+              <Row>
+                <Button title="PDF" onPress={() => onExportFiltered('pdf')} />
+                <Button title="Excel" variant="secondary" onPress={() => onExportFiltered('excel')} />
+              </Row>
+            </Card>
+
             <Card title="Filtered Snapshot">
               <Row>
                 <View style={styles.statBox}>
@@ -410,7 +486,16 @@ export const LogsScreen = () => {
                 onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
                 onLongPress={() => onDelete(item)}
               >
-                <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
+                <View style={styles.rowHead}>
+                  <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
+                  <Pressable onPress={() => togglePin(item)} hitSlop={8}>
+                    <Ionicons
+                      name={pinned.includes(logKey(item)) ? 'star' : 'star-outline'}
+                      size={18}
+                      color={pinned.includes(logKey(item)) ? '#f59e0b' : '#94a3b8'}
+                    />
+                  </Pressable>
+                </View>
                 <Text style={styles.title}>{item.title}</Text>
                 <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
                 <Text style={styles.sub}>{item.subtitle || '—'}</Text>
@@ -497,6 +582,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     padding: 12,
+  },
+  rowHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
   },
   kind: { color: '#2563eb', fontSize: 11, fontWeight: '700', marginBottom: 2 },
   title: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 2 },

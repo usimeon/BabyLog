@@ -138,6 +138,8 @@ npm run ios
 - Single timeline for feed, growth, temperature, and diaper entries
 - Tap any log entry to edit inline in `Add Entry`
 - Long press to delete
+- Star icon to pin/unpin important entries, with `pinned` filter
+- Export filtered/ranged Logs view directly to PDF or Excel
 - Includes:
   - Today-at-a-glance counters
   - Safety alerts (missed feed interval, high temp, diaper gap)
