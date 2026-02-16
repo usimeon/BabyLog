@@ -11,7 +11,9 @@ import { formatTime } from '../utils/time';
 import { mlToDisplay } from '../utils/units';
 import { FeedSummary } from '../types/models';
 import { SyncBanner } from '../components/SyncBanner';
-import { getRoutineSuggestions, RoutineSuggestion } from '../services/routineSuggestions';
+import { getRoutineSuggestions } from '../services/routineSuggestions';
+import { getAiDailyInsights, mergeDailySuggestions } from '../services/aiInsights';
+import { AiSuggestion } from '../types/ai';
 
 export const TodayScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -23,15 +25,16 @@ export const TodayScreen = () => {
     totalAmountTodayMl: 0,
     averageIntervalHours: 0,
   });
-  const [suggestions, setSuggestions] = useState<RoutineSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<AiSuggestion[]>([]);
 
   const load = useCallback(async () => {
-    const [nextSummary, nextSuggestions] = await Promise.all([
+    const [nextSummary, nextRuleSuggestions, nextAiInsights] = await Promise.all([
       calculateFeedSummary(babyId, reminderSettings.intervalHours),
       getRoutineSuggestions(babyId),
+      getAiDailyInsights(babyId),
     ]);
     setSummary(nextSummary);
-    setSuggestions(nextSuggestions);
+    setSuggestions(mergeDailySuggestions(nextRuleSuggestions, nextAiInsights, 4));
   }, [babyId, reminderSettings.intervalHours]);
 
   useFocusEffect(
@@ -81,7 +84,10 @@ export const TodayScreen = () => {
         <Card title="Routine Suggestions">
           {suggestions.map((item) => (
             <View key={item.id} style={styles.suggestionItem}>
-              <Text style={styles.suggestionTitle}>{item.title}</Text>
+              <View style={styles.suggestionHeader}>
+                <Text style={styles.suggestionTitle}>{item.title}</Text>
+                {item.source === 'ai' ? <Text style={styles.aiTag}>AI-assisted</Text> : null}
+              </View>
               <Text style={styles.suggestionDetail}>{item.detail}</Text>
             </View>
           ))}
@@ -140,6 +146,18 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8,
   },
+  suggestionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   suggestionTitle: { color: '#0f172a', fontWeight: '700', marginBottom: 4 },
   suggestionDetail: { color: '#334155', fontSize: 13 },
+  aiTag: {
+    fontSize: 10,
+    color: '#1d4ed8',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
 });

@@ -10,7 +10,8 @@
     "db:login": "npx supabase login",
     "db:link": "npx supabase link --project-ref $SUPABASE_PROJECT_REF",
     "db:push": "npx supabase db push",
-    "db:setup": "bash ./scripts/supabase-setup.sh"
+    "db:setup": "bash ./scripts/supabase-setup.sh",
+    "ai:smoke": "bash ./scripts/ai-insights-smoke.sh"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

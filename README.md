@@ -92,6 +92,38 @@ npm run db:push
 Key files:
 - `supabase/config.toml`
 - `supabase/migrations/20260216010000_init_babylog.sql`
+- `supabase/migrations/20260216103000_daily_ai_insights.sql`
+
+## 3.2) Backend AI daily insights (optional)
+
+AI suggestions are generated on backend only through Supabase Edge Function.
+No provider API key is stored in the mobile app bundle.
+
+### Deploy SQL + function
+
+```bash
+npm run db:push
+supabase functions deploy ai-daily-insights
+```
+
+### Set edge function secrets
+
+```bash
+supabase secrets set OPENAI_API_KEY=your_key_here
+supabase secrets set OPENAI_MODEL=gpt-4o-mini
+```
+
+### Optional smoke test
+
+```bash
+npm run ai:smoke
+```
+
+Required env for smoke script:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_JWT`
+- `BABY_ID`
 
 ## 4) Run typecheck
 
@@ -182,6 +214,15 @@ Excel sheets:
 
 ### Routine suggestions
 - `Today` includes simple personalized routine suggestions from recent trends (feeds, diapers, temps, meds)
+- AI daily trend analysis is merged with deterministic rules when available
+- AI suggestions show `AI-assisted` label in `Today`
+- If AI is unavailable/quota-limited, deterministic suggestions continue unchanged
+
+### Free-tier AI strategy
+- AI generation is cached per `(user, baby, date)` in `daily_ai_insights`
+- Max one AI generation attempt per baby/day
+- Compact aggregates are sent to model (not full raw history)
+- Short output/token limits reduce cost
 
 ### Sync behavior
 - Offline-first writes to SQLite

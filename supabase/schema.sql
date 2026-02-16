@@ -94,6 +94,16 @@ create table if not exists public.milestones (
   deleted_at timestamptz
 );
 
+create table if not exists public.daily_ai_insights (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  baby_id text not null references public.babies(id) on delete cascade,
+  date date not null,
+  payload_json jsonb not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create index if not exists idx_babies_user_id on public.babies(user_id);
 create index if not exists idx_feed_user_id on public.feed_events(user_id);
 create index if not exists idx_feed_baby_time on public.feed_events(baby_id, timestamp desc);
@@ -107,6 +117,9 @@ create index if not exists idx_medication_logs_user_id on public.medication_logs
 create index if not exists idx_medication_logs_baby_time on public.medication_logs(baby_id, timestamp desc);
 create index if not exists idx_milestones_user_id on public.milestones(user_id);
 create index if not exists idx_milestones_baby_time on public.milestones(baby_id, timestamp desc);
+create index if not exists idx_daily_ai_insights_user_id on public.daily_ai_insights(user_id);
+create unique index if not exists idx_daily_ai_insights_user_baby_date
+  on public.daily_ai_insights(user_id, baby_id, date);
 
 alter table public.babies enable row level security;
 alter table public.feed_events enable row level security;
@@ -115,6 +128,7 @@ alter table public.temperature_logs enable row level security;
 alter table public.diaper_logs enable row level security;
 alter table public.medication_logs enable row level security;
 alter table public.milestones enable row level security;
+alter table public.daily_ai_insights enable row level security;
 
 create policy "babies owner read" on public.babies
 for select using (auth.uid() = user_id);
@@ -153,4 +167,11 @@ drop policy if exists "milestone owner write" on public.milestones;
 create policy "milestone owner read" on public.milestones
 for select using (auth.uid() = user_id);
 create policy "milestone owner write" on public.milestones
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "daily_ai_insights owner read" on public.daily_ai_insights;
+drop policy if exists "daily_ai_insights owner write" on public.daily_ai_insights;
+create policy "daily_ai_insights owner read" on public.daily_ai_insights
+for select using (auth.uid() = user_id);
+create policy "daily_ai_insights owner write" on public.daily_ai_insights
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
