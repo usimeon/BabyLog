@@ -63,9 +63,9 @@ export const TodayScreen = () => {
 
         <View style={{ gap: 10 }}>
           <Button
-            title="Add Feed"
+            title="Add Entry"
             onPress={() => {
-              navigation.navigate('AddFeed');
+              navigation.navigate('AddEntry', { type: 'feed' });
             }}
           />
           <Button title="Refresh" variant="secondary" onPress={load} />

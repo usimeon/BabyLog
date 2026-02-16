@@ -116,6 +116,7 @@ npm run ios
 ### Feeds
 - Add/edit/delete feed events
 - Fields: timestamp, type, amount, duration, side, notes
+- New entries are created from one unified `Add Entry` screen
 - Today dashboard with:
   - last feed time
   - next reminder time
@@ -126,11 +127,12 @@ npm run ios
 - Add/edit/delete measurements
 - Fields: timestamp, weight, length, head circumference, notes
 - List + weight chart
+- New entries are created from one unified `Add Entry` screen
 
 ### Care logs
 - Temperature tracking (timestamp, temperature C, notes)
 - Poop/Pee tracking (timestamp, pee yes/no, poop yes/no, poop size small/medium/large, notes)
-- `Care` tab provides add + history + delete
+- `Care` tab provides history + delete; creation happens in unified `Add Entry` screen
 
 ### Reminders
 - Settings:

@@ -1,28 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useFocusEffect } from '@react-navigation/native';
-import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
+import { Alert, SafeAreaView, ScrollView, StyleSheet, Text } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../app/navigation';
+import { Button, Card } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
-import { addTemperatureLog, listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperatureRepo';
-import { addDiaperLog, listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
-import { PoopSize } from '../types/models';
+import { listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperatureRepo';
+import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { formatDateTime } from '../utils/time';
 
-const poopSizes: PoopSize[] = ['small', 'medium', 'large'];
-
 export const CareScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { babyId, syncNow, bumpDataVersion, dataVersion } = useAppContext();
-
-  const [tempTimestamp, setTempTimestamp] = useState(new Date());
-  const [temperatureC, setTemperatureC] = useState('36.8');
-  const [tempNotes, setTempNotes] = useState('');
-
-  const [diaperTimestamp, setDiaperTimestamp] = useState(new Date());
-  const [hadPee, setHadPee] = useState(true);
-  const [hadPoop, setHadPoop] = useState(false);
-  const [poopSize, setPoopSize] = useState<PoopSize>('small');
-  const [diaperNotes, setDiaperNotes] = useState('');
 
   const [temps, setTemps] = useState<any[]>([]);
   const [diapers, setDiapers] = useState<any[]>([]);
@@ -42,43 +31,6 @@ export const CareScreen = () => {
   useEffect(() => {
     load();
   }, [dataVersion, load]);
-
-  const addTemp = async () => {
-    const parsed = Number(temperatureC);
-    if (!Number.isFinite(parsed)) {
-      Alert.alert('Invalid temperature', 'Enter a valid temperature in C.');
-      return;
-    }
-
-    await addTemperatureLog(babyId, {
-      timestamp: tempTimestamp.toISOString(),
-      temperature_c: parsed,
-      notes: tempNotes || null,
-    });
-    await syncNow();
-    bumpDataVersion();
-    setTempNotes('');
-    load();
-  };
-
-  const addDiaper = async () => {
-    if (!hadPee && !hadPoop) {
-      Alert.alert('Nothing selected', 'Enable pee and/or poop before saving.');
-      return;
-    }
-
-    await addDiaperLog(babyId, {
-      timestamp: diaperTimestamp.toISOString(),
-      had_pee: hadPee ? 1 : 0,
-      had_poop: hadPoop ? 1 : 0,
-      poop_size: hadPoop ? poopSize : null,
-      notes: diaperNotes || null,
-    });
-    await syncNow();
-    bumpDataVersion();
-    setDiaperNotes('');
-    load();
-  };
 
   const deleteTemp = (id: string) => {
     Alert.alert('Delete temperature log', 'Remove this entry?', [
@@ -115,40 +67,9 @@ export const CareScreen = () => {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Card title="Temperature">
-          <Label>Timestamp</Label>
-          <DateTimePicker value={tempTimestamp} mode="datetime" onChange={(_, d) => d && setTempTimestamp(d)} />
-          <Label>Temperature (C)</Label>
-          <Input value={temperatureC} onChangeText={setTemperatureC} keyboardType="decimal-pad" />
-          <Label>Notes</Label>
-          <Input value={tempNotes} onChangeText={setTempNotes} />
-          <Button title="Add Temperature" onPress={addTemp} />
-        </Card>
-
-        <Card title="Poop & Pee">
-          <Label>Timestamp</Label>
-          <DateTimePicker value={diaperTimestamp} mode="datetime" onChange={(_, d) => d && setDiaperTimestamp(d)} />
-          <Row>
-            <Text style={styles.label}>Pee</Text>
-            <Switch value={hadPee} onValueChange={setHadPee} />
-          </Row>
-          <Row>
-            <Text style={styles.label}>Poop</Text>
-            <Switch value={hadPoop} onValueChange={setHadPoop} />
-          </Row>
-          {hadPoop ? (
-            <>
-              <Label>Poop size</Label>
-              <Row>
-                {poopSizes.map((size) => (
-                  <SelectPill key={size} label={size} selected={poopSize === size} onPress={() => setPoopSize(size)} />
-                ))}
-              </Row>
-            </>
-          ) : null}
-          <Label>Notes</Label>
-          <Input value={diaperNotes} onChangeText={setDiaperNotes} />
-          <Button title="Add Diaper Log" onPress={addDiaper} />
+        <Card title="Add Care Entries">
+          <Button title="Add Temperature Entry" onPress={() => navigation.navigate('AddEntry', { type: 'temperature' })} />
+          <Button title="Add Poop/Pee Entry" variant="secondary" onPress={() => navigation.navigate('AddEntry', { type: 'diaper' })} />
         </Card>
 
         <Card title="Recent Temperature Logs (long press to delete)">
@@ -186,7 +107,6 @@ export const CareScreen = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   content: { padding: 16, gap: 10, paddingBottom: 40 },
-  label: { color: '#374151', fontWeight: '500' },
   item: { color: '#1f2937', fontSize: 13, marginBottom: 8 },
   empty: { color: '#6b7280' },
 });
