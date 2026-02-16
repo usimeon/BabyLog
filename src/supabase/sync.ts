@@ -12,10 +12,49 @@ type SyncRow = {
   deleted_at?: string | null;
 };
 
+type RemoteBabyRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  birthdate?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+};
+
 const markClean = async (table: 'babies' | 'feed_events' | 'measurements', ids: string[]) => {
   if (!ids.length) return;
   const placeholders = ids.map(() => '?').join(',');
   await runSql(`UPDATE ${table} SET dirty = 0 WHERE id IN (${placeholders});`, ids);
+};
+
+const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
+  if (!remoteBabies.length) return;
+
+  const remoteIds = new Set(remoteBabies.map((x) => x.id));
+  const localBabies = await getAll<any>('SELECT * FROM babies WHERE deleted_at IS NULL;');
+
+  for (const baby of localBabies) {
+    if (remoteIds.has(baby.id)) continue;
+    if (baby.dirty !== 1) continue;
+
+    const feedCount = await getOne<{ count: number }>(
+      'SELECT COUNT(*) as count FROM feed_events WHERE baby_id = ? AND deleted_at IS NULL;',
+      [baby.id],
+    );
+    const measurementCount = await getOne<{ count: number }>(
+      'SELECT COUNT(*) as count FROM measurements WHERE baby_id = ? AND deleted_at IS NULL;',
+      [baby.id],
+    );
+
+    const hasData = (feedCount?.count ?? 0) > 0 || (measurementCount?.count ?? 0) > 0;
+
+    // A reinstall can create a blank local baby before first pull; drop that placeholder to avoid duplicate babies.
+    if (!hasData) {
+      await runSql('DELETE FROM babies WHERE id = ?;', [baby.id]);
+      console.log(`[sync] removed local placeholder baby id=${baby.id}`);
+    }
+  }
 };
 
 const pushDirtyRows = async (userId: string) => {
@@ -202,25 +241,32 @@ const pullRemoteRows = async (userId: string) => {
   }
 };
 
-const ensureRemoteHasBaby = async (userId: string) => {
-  if (!supabase) return;
-  const baby = await getOrCreateDefaultBaby();
-  const { data, error } = await supabase.from('babies').select('id').eq('user_id', userId).limit(1);
+const fetchRemoteBabies = async (userId: string): Promise<RemoteBabyRow[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('babies')
+    .select('id,user_id,name,birthdate,created_at,updated_at,deleted_at')
+    .eq('user_id', userId);
   if (error) throw error;
+  return data as RemoteBabyRow[];
+};
 
-  if (!data.length) {
-    const { error: insertErr } = await supabase.from('babies').insert({
-      id: baby.id,
-      user_id: userId,
-      name: baby.name,
-      birthdate: baby.birthdate,
-      created_at: baby.created_at,
-      updated_at: baby.updated_at,
-      deleted_at: baby.deleted_at,
-    });
-    if (insertErr) throw insertErr;
-    await runSql('UPDATE babies SET dirty = 0 WHERE id = ?;', [baby.id]);
-  }
+const ensureRemoteHasBaby = async (userId: string, remoteBabies: RemoteBabyRow[]) => {
+  if (!supabase) return;
+  if (remoteBabies.length) return;
+  const baby = await getOrCreateDefaultBaby();
+
+  const { error: insertErr } = await supabase.from('babies').insert({
+    id: baby.id,
+    user_id: userId,
+    name: baby.name,
+    birthdate: baby.birthdate,
+    created_at: baby.created_at,
+    updated_at: baby.updated_at,
+    deleted_at: baby.deleted_at,
+  });
+  if (insertErr) throw insertErr;
+  await runSql('UPDATE babies SET dirty = 0 WHERE id = ?;', [baby.id]);
 };
 
 let syncInProgress = false;
@@ -237,7 +283,9 @@ export const syncAll = async () => {
     const userId = session.user.id;
     console.log('[sync] start');
     await setAuthUserId(userId);
-    await ensureRemoteHasBaby(userId);
+    const remoteBabies = await fetchRemoteBabies(userId);
+    await removeLocalPlaceholderBabies(remoteBabies);
+    await ensureRemoteHasBaby(userId, remoteBabies);
     await pushDirtyRows(userId);
     await pullRemoteRows(userId);
     await setLastSyncAt(nowIso());
