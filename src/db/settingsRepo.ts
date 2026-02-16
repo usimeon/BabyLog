@@ -1,0 +1,66 @@
+import { getAll, getOne, runSql } from './client';
+import { ReminderSettings } from '../types/models';
+import { nowIso } from '../utils/time';
+
+const REMINDER_KEY = 'reminder_settings';
+const AMOUNT_UNIT_KEY = 'amount_unit';
+const WEIGHT_UNIT_KEY = 'weight_unit';
+const AUTH_USER_KEY = 'auth_user_id';
+const REMINDER_NOTIFICATION_ID = 'reminder_notification_id';
+const LAST_SYNC_AT = 'last_sync_at';
+
+const defaults: ReminderSettings = {
+  enabled: false,
+  intervalHours: 3,
+  quietHoursStart: null,
+  quietHoursEnd: null,
+  allowDuringQuietHours: false,
+};
+
+export const setSetting = async (key: string, value: string) => {
+  await runSql(
+    `INSERT INTO settings(key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`,
+    [key, value, nowIso()],
+  );
+};
+
+export const getSetting = async (key: string) => {
+  const row = await getOne<{ value: string }>('SELECT value FROM settings WHERE key = ? LIMIT 1;', [key]);
+  return row?.value ?? null;
+};
+
+export const getAllSettings = async () => {
+  return getAll<{ key: string; value: string }>('SELECT key, value FROM settings;');
+};
+
+export const getReminderSettings = async (): Promise<ReminderSettings> => {
+  const raw = await getSetting(REMINDER_KEY);
+  if (!raw) return defaults;
+  try {
+    return { ...defaults, ...JSON.parse(raw) } as ReminderSettings;
+  } catch {
+    return defaults;
+  }
+};
+
+export const saveReminderSettings = async (settings: ReminderSettings) => {
+  await setSetting(REMINDER_KEY, JSON.stringify(settings));
+};
+
+export const getAmountUnit = async () => (await getSetting(AMOUNT_UNIT_KEY)) ?? 'ml';
+export const setAmountUnit = async (unit: 'ml' | 'oz') => setSetting(AMOUNT_UNIT_KEY, unit);
+
+export const getWeightUnit = async () => (await getSetting(WEIGHT_UNIT_KEY)) ?? 'kg';
+export const setWeightUnit = async (unit: 'kg' | 'lb') => setSetting(WEIGHT_UNIT_KEY, unit);
+
+export const setAuthUserId = async (userId: string | null) => setSetting(AUTH_USER_KEY, userId ?? '');
+export const getAuthUserId = async () => (await getSetting(AUTH_USER_KEY)) || null;
+
+export const setReminderNotificationId = async (id: string | null) =>
+  setSetting(REMINDER_NOTIFICATION_ID, id ?? '');
+export const getReminderNotificationId = async () => (await getSetting(REMINDER_NOTIFICATION_ID)) || null;
+
+export const setLastSyncAt = async (iso: string) => setSetting(LAST_SYNC_AT, iso);
+export const getLastSyncAt = async () => (await getSetting(LAST_SYNC_AT)) || null;

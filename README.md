@@ -1,0 +1,127 @@
+# BabyLog (Expo + React Native + TypeScript)
+
+BabyLog is an iOS-focused baby tracking app with:
+- Offline-first local data storage via SQLite
+- Optional Supabase auth + cloud sync
+- Feed and measurement logging
+- Reminder notifications
+- Charts
+- Export to PNG/PDF/XLSX
+
+## Stack
+- Expo SDK 54
+- React Native + TypeScript
+- `expo-sqlite`
+- `expo-notifications`
+- `expo-print`
+- `expo-file-system`
+- `expo-sharing`
+- `react-native-svg`
+- Supabase (`@supabase/supabase-js`)
+
+## Project structure
+
+```
+src/
+  app/
+  components/
+  context/
+  db/
+  screens/
+  services/
+  supabase/
+  types/
+  utils/
+supabase/
+  schema.sql
+```
+
+## 1) Prerequisites (macOS M3)
+- Xcode + iOS Simulator installed
+- Node.js 20+
+- npm 10+
+
+## 2) Install dependencies
+
+```bash
+npm install
+```
+
+## 3) Configure Supabase (optional, for cloud sync)
+
+1. Create a project in Supabase.
+2. In SQL Editor, run `/supabase/schema.sql`.
+3. In Authentication settings, enable Email/Password.
+4. Copy your project URL + anon key.
+5. Create `.env` in repo root:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
+
+If these env vars are missing, app still works fully local/offline.
+
+## 4) Run typecheck
+
+```bash
+npm run typecheck
+```
+
+## 5) Run on iOS simulator
+
+```bash
+npm run ios
+```
+
+## Features shipped
+
+### Feeds
+- Add/edit/delete feed events
+- Fields: timestamp, type, amount, duration, side, notes
+- Today dashboard with:
+  - last feed time
+  - next reminder time
+  - total amount today
+  - average interval (last 24h)
+
+### Measurements
+- Add/edit/delete measurements
+- Fields: timestamp, weight, length, head circumference, notes
+- List + weight chart
+
+### Reminders
+- Settings:
+  - enabled
+  - interval hours
+  - quiet hours start/end
+  - allow during quiet hours
+- On feed add/edit/delete: exactly one upcoming reminder is recalculated and scheduled
+- If disabled: reminder is cancelled
+
+### Charts
+- Feed chart for last 7/30 days totals + interval trend
+- Weight chart over time
+- Chart export to PNG using view capture
+
+### Exports
+- `exportChartImage(chartId, dateRange)`
+- `exportPdf(dateRange)`
+- `exportExcel(dateRange)`
+
+Excel sheets:
+- `FeedEvents`
+- `Measurements`
+- `DailySummary`
+
+### Sync behavior
+- Offline-first writes to SQLite
+- Background sync on app launch + app foreground
+- LWW conflict handling (`updated_at`)
+- RLS in Supabase ensures users only access their own data
+
+## Notes
+- Canonical storage units:
+  - feed amount: `amount_ml`
+  - weight: `weight_kg`
+- UI unit conversion supports ml/oz and kg/lb.
