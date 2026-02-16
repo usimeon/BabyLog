@@ -10,6 +10,23 @@ type Props = {
 };
 
 export const SyncBanner = ({ syncState, lastSyncAt, syncError, enabled }: Props) => {
+  const [showSuccess, setShowSuccess] = React.useState(false);
+  const lastShownSyncAtRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (syncState !== 'success' || !lastSyncAt) return;
+    if (lastShownSyncAtRef.current === lastSyncAt) return;
+
+    lastShownSyncAtRef.current = lastSyncAt;
+    setShowSuccess(true);
+
+    const timer = setTimeout(() => {
+      setShowSuccess(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [syncState, lastSyncAt]);
+
   if (!enabled) {
     return (
       <View style={[styles.wrap, styles.neutral]}>
@@ -33,6 +50,8 @@ export const SyncBanner = ({ syncState, lastSyncAt, syncError, enabled }: Props)
       </View>
     );
   }
+
+  if (!showSuccess) return null;
 
   return (
     <View style={[styles.wrap, styles.success]}>
@@ -70,4 +89,3 @@ const styles = StyleSheet.create({
     borderColor: '#fecaca',
   },
 });
-

@@ -64,7 +64,7 @@ export const WeightChartsTab = () => {
               <Text style={styles.meta}>Reference overlay</Text>
               <LineChart data={percentileOverlay.p10} color="#93c5fd" />
               <LineChart data={percentileOverlay.p50} color="#60a5fa" />
-              <LineChart data={percentileOverlay.p90} color="#2563eb" />
+              <LineChart data={percentileOverlay.p90} color="#F77575" />
             </>
           ) : null}
         </Card>

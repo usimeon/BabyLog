@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { signInWithEmail, signUpWithEmail } from '../supabase/auth';
 import { isSupabaseConfigured } from '../supabase/client';
 import { useAppContext } from '../context/AppContext';
@@ -43,14 +42,6 @@ export const AuthScreen = () => {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.hero}>
-            <View style={styles.logoCircle}>
-              <Ionicons name="heart" size={20} color="#1d4ed8" />
-            </View>
-            <Text style={styles.title}>BabyLog Cloud</Text>
-            <Text style={styles.subtitle}>Sign in to sync data across devices and keep secure backups.</Text>
-          </View>
-
           <Card title={mode === 'signIn' ? 'Welcome Back' : 'Create Your Account'}>
             <Row>
               <SelectPill label="Sign In" selected={mode === 'signIn'} onPress={() => setMode('signIn')} />
@@ -88,26 +79,5 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#eef3fb' },
   flex: { flex: 1 },
   content: { padding: 16, gap: 12, flexGrow: 1, justifyContent: 'center' },
-  hero: {
-    backgroundColor: '#dbeafe',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-  },
-  logoCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  title: { fontSize: 30, fontWeight: '800', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#334155', marginTop: 6, textAlign: 'center' },
   helper: { marginTop: 10, fontSize: 12, color: '#64748b' },
 });

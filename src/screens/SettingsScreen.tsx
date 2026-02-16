@@ -50,6 +50,11 @@ export const SettingsScreen = () => {
   const [feverThresholdC, setFeverThresholdC] = useState(String(smartAlertSettings.feverThresholdC));
   const [lowFeedsPerDay, setLowFeedsPerDay] = useState(String(smartAlertSettings.lowFeedsPerDay));
   const [backupIntervalDays, setBackupIntervalDays] = useState(String(backupSettings.intervalDays));
+  const dummyAccounts = [
+    { name: 'Ava Johnson', phone: '(415) 555-0148', lastUsed: '2h ago' },
+    { name: 'Noah Patel', phone: '(415) 555-0199', lastUsed: 'Yesterday' },
+    { name: 'Mia Chen', phone: '(415) 555-0112', lastUsed: '3d ago' },
+  ];
 
   const dateRange: DateRange = useMemo(() => {
     if (rangePreset === 'custom') {
@@ -113,6 +118,10 @@ export const SettingsScreen = () => {
     } catch (error: any) {
       Alert.alert('Sign out failed', error?.message ?? 'Unknown error');
     }
+  };
+
+  const onInvite = async () => {
+    Alert.alert('Invite sent', 'Invite link shared with caregiver contacts.');
   };
 
   const onSeedData = async () => {
@@ -191,7 +200,7 @@ export const SettingsScreen = () => {
               <Text style={styles.heroPillText}>{supabaseEnabled ? 'Cloud Ready' : 'Local Mode'}</Text>
             </View>
             <View style={styles.heroPill}>
-              <Ionicons name="notifications-outline" size={14} color="#1d4ed8" />
+              <Ionicons name="notifications-outline" size={14} color="#F77575" />
               <Text style={styles.heroPillText}>{reminderSettings.enabled ? 'Reminders On' : 'Reminders Off'}</Text>
             </View>
           </View>
@@ -254,7 +263,9 @@ export const SettingsScreen = () => {
             />
           </Row>
 
-          <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled)} />
+          <View style={styles.buttonGroup}>
+            <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled)} />
+          </View>
         </Card>
 
         <Card title="Smart Alerts">
@@ -281,7 +292,9 @@ export const SettingsScreen = () => {
           <Label>Low feed count (24h)</Label>
           <Input value={lowFeedsPerDay} onChangeText={setLowFeedsPerDay} keyboardType="number-pad" />
 
-          <Button title="Apply Alert Thresholds" onPress={applySmartAlerts} />
+          <View style={styles.buttonGroup}>
+            <Button title="Apply Alert Thresholds" onPress={applySmartAlerts} />
+          </View>
         </Card>
 
         <Card title="Export">
@@ -305,21 +318,14 @@ export const SettingsScreen = () => {
             </>
           ) : null}
 
-          <Text style={styles.sub}>Range: {formatDateTime(dateRange.start.toISOString())} - {formatDateTime(dateRange.end.toISOString())}</Text>
+          <Text style={styles.sub}>
+            Range: {formatDateTime(dateRange.start.toISOString())} - {formatDateTime(dateRange.end.toISOString())}
+          </Text>
 
-          <Button title="Export PDF" onPress={() => runExport('pdf')} />
-          <Button title="Export Excel (.xlsx)" onPress={() => runExport('excel')} variant="secondary" />
-        </Card>
-
-        <Card title="Cloud Sync">
-          <Row>
-            <Ionicons name="cloud-outline" size={16} color="#334155" />
-            <Text style={styles.sectionSub}>Account and synchronization</Text>
-          </Row>
-          <Text style={styles.sub}>{supabaseEnabled ? 'Supabase configured' : 'Supabase not configured'}</Text>
-          <Text style={styles.sub}>{session ? `Signed in as ${session.user.email}` : 'Not signed in'}</Text>
-          <Button title="Sync Now" onPress={syncNow} />
-          {session ? <Button title="Sign Out" variant="danger" onPress={onSignOut} /> : null}
+          <View style={styles.buttonGroup}>
+            <Button title="Export PDF" onPress={() => runExport('pdf')} />
+            <Button title="Export Excel (.xlsx)" onPress={() => runExport('excel')} variant="secondary" />
+          </View>
         </Card>
 
         <Card title="Auto Backup">
@@ -365,8 +371,10 @@ export const SettingsScreen = () => {
           <Text style={styles.sub}>
             Last backup: {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}
           </Text>
-          <Button title="Apply Backup Settings" variant="secondary" onPress={applyBackupSettings} />
-          <Button title="Run Backup Now" onPress={onRunBackupNow} />
+          <View style={styles.buttonGroup}>
+            <Button title="Apply Backup Settings" variant="secondary" onPress={applyBackupSettings} />
+            <Button title="Run Backup Now" onPress={onRunBackupNow} />
+          </View>
         </Card>
 
         <Card title="QA Tools">
@@ -375,8 +383,44 @@ export const SettingsScreen = () => {
             <Text style={styles.sectionSub}>Testing helpers</Text>
           </Row>
           <Text style={styles.sub}>Use sample data to validate reminders, charts, medications, milestones, and exports quickly.</Text>
-          <Button title="Seed Demo Data" onPress={onSeedData} />
-          <Button title="Clear Local Tracking Data" variant="danger" onPress={onClearData} />
+          <View style={styles.buttonGroup}>
+            <Button title="Seed Demo Data" onPress={onSeedData} />
+            <Button title="Clear Local Tracking Data" variant="danger" onPress={onClearData} />
+          </View>
+        </Card>
+
+        <Card title="Account">
+          <Row>
+            <Ionicons name="person-circle-outline" size={16} color="#334155" />
+            <Text style={styles.sectionSub}>Access and linked caregivers</Text>
+          </Row>
+
+          <Text style={styles.sectionSub}>Linked accounts</Text>
+          <View style={styles.accountList}>
+            {dummyAccounts.map((account) => (
+              <View key={account.phone} style={styles.accountItem}>
+                <View>
+                  <Text style={styles.accountName}>{account.name}</Text>
+                  <Text style={styles.accountMeta}>{account.phone}</Text>
+                </View>
+                <Text style={styles.accountMeta}>{account.lastUsed}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.buttonGroup}>
+            <Button title="Invite Caregiver" variant="secondary" onPress={onInvite} />
+          </View>
+
+          <View style={styles.sectionSpacer} />
+
+          <Text style={styles.signedInLine}>
+            Signed in: <Text style={styles.signedInEmail}>{session ? session.user.email : 'Not signed in'}</Text>
+          </Text>
+          <View style={styles.buttonGroup}>
+            <Button title="Sync Now" onPress={syncNow} />
+            {session ? <Button title="Sign Out" variant="danger" onPress={onSignOut} /> : null}
+          </View>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -385,7 +429,7 @@ export const SettingsScreen = () => {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#eef3fb' },
-  content: { padding: 16, gap: 10 },
+  content: { padding: 16, gap: 14 },
   hero: {
     backgroundColor: '#dbeafe',
     borderWidth: 1,
@@ -412,4 +456,22 @@ const styles = StyleSheet.create({
   label: { color: '#374151', fontWeight: '500' },
   sub: { color: '#4b5563', fontSize: 13, marginBottom: 8 },
   sectionSub: { color: '#64748b', fontSize: 12, marginBottom: 8 },
+  buttonGroup: { marginTop: 8, gap: 8 },
+  accountList: { gap: 8, marginBottom: 8 },
+  accountItem: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  accountName: { color: '#111827', fontSize: 13, fontWeight: '600' },
+  accountMeta: { color: '#6b7280', fontSize: 12 },
+  sectionSpacer: { height: 16 },
+  signedInLine: { color: '#4b5563', fontSize: 13, marginBottom: 2 },
+  signedInEmail: { color: '#111827', fontSize: 13, fontWeight: '700' },
 });

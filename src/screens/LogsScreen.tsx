@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 2,
   },
-  kind: { color: '#2563eb', fontSize: 11, fontWeight: '700', marginBottom: 2 },
+  kind: { color: '#F77575', fontSize: 11, fontWeight: '700', marginBottom: 2 },
   title: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 2 },
   sub: { fontSize: 13, color: '#4b5563' },
   empty: { textAlign: 'center', color: '#6b7280', marginTop: 40 },

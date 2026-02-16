@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   button: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#F77575',
     borderRadius: 10,
     paddingVertical: 11,
     paddingHorizontal: 14,
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   pillSelected: {
-    borderColor: '#2563eb',
+    borderColor: '#F77575',
     backgroundColor: '#dbeafe',
   },
   pillText: {
@@ -121,6 +121,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   pillTextSelected: {
-    color: '#1d4ed8',
+    color: '#F77575',
   },
 });

@@ -1,8 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Button, Card } from '../components/ui';
+import { Ionicons } from '@expo/vector-icons';
+import { Card } from '../components/ui';
 import { calculateFeedSummary } from '../db/feedRepo';
 import { useAppContext } from '../context/AppContext';
 import { RootStackParamList } from '../app/navigation';
@@ -50,10 +51,13 @@ export const TodayScreen = () => {
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>Add Entry</Text>
           <Text style={styles.heroSubtitle}>Log feed, growth, temperature, diaper, meds, or milestones.</Text>
-          <Button title="Add Entry" onPress={() => navigation.navigate('AddEntry')} />
-          <View style={{ marginTop: 8 }}>
-            <Button title="Voice Quick Entry" variant="secondary" onPress={() => navigation.navigate('VoiceQuickEntry')} />
-          </View>
+          <Pressable style={styles.logButton} onPress={() => navigation.navigate('AddEntry')}>
+            <Text style={styles.logButtonText}>Log</Text>
+          </Pressable>
+          <Pressable style={styles.voiceButton} onPress={() => navigation.navigate('VoiceQuickEntry')}>
+            <Ionicons name="mic" size={16} color="#1f2937" />
+            <Text style={styles.voiceButtonText}>Voice Quick Entry</Text>
+          </Pressable>
         </View>
 
         <SyncBanner
@@ -99,6 +103,33 @@ const styles = StyleSheet.create({
   },
   heroTitle: { color: '#1e3a8a', fontSize: 22, fontWeight: '800', marginBottom: 4 },
   heroSubtitle: { color: '#334155', fontSize: 13, marginBottom: 12 },
+  logButton: {
+    backgroundColor: '#F77575',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  voiceButton: {
+    marginTop: 8,
+    backgroundColor: '#FFE194',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  voiceButtonText: {
+    color: '#1f2937',
+    fontWeight: '600',
+  },
   valueLabel: { color: '#6b7280', fontSize: 13, marginTop: 8 },
   value: { color: '#111827', fontSize: 20, fontWeight: '700', marginBottom: 4 },
   suggestionItem: {
