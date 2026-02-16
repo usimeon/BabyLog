@@ -60,6 +60,12 @@ EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
 ```
 
+If you update `.env`, restart Expo with cache clear:
+
+```bash
+npm run ios -- --clear
+```
+
 If these env vars are missing, app still works fully local/offline.
 
 ## 4) Run typecheck
@@ -136,3 +142,9 @@ Excel sheets:
   - feed amount: `amount_ml`
   - weight: `weight_kg`
 - UI unit conversion supports ml/oz and kg/lb.
+
+## Supabase env troubleshooting
+- Ensure the file is exactly `/Users/simeon/Documents/MY APPS/Shyla/.env`
+- Variable names must start with `EXPO_PUBLIC_`
+- Do not wrap values in quotes
+- Restart Expo with cache clear after changes

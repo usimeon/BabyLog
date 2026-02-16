@@ -1,8 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { createClient } from '@supabase/supabase-js';
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+type ExtraConfig = {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+};
+
+const extra = (Constants.expoConfig?.extra ?? {}) as ExtraConfig;
+
+const url = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? extra.supabaseUrl ?? '').trim();
+const anonKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? extra.supabaseAnonKey ?? '').trim();
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
