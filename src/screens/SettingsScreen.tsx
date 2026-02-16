@@ -13,6 +13,7 @@ import { formatDateTime } from '../utils/time';
 import { signOut } from '../supabase/auth';
 import { SyncBanner } from '../components/SyncBanner';
 import { runBackupNow } from '../services/backups';
+import { connectCloudProvider, disconnectCloudProvider, getCloudProviderConnected } from '../services/cloudStorage';
 
 export const SettingsScreen = () => {
   const {
@@ -48,8 +49,11 @@ export const SettingsScreen = () => {
   const [feverThresholdC, setFeverThresholdC] = useState(String(smartAlertSettings.feverThresholdC));
   const [lowFeedsPerDay, setLowFeedsPerDay] = useState(String(smartAlertSettings.lowFeedsPerDay));
   const [backupIntervalDays, setBackupIntervalDays] = useState(String(backupSettings.intervalDays));
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [dropboxConnected, setDropboxConnected] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const dummyAccounts = [
     { name: 'Ava Johnson', phone: '(415) 555-0148', lastUsed: '2h ago' },
     { name: 'Noah Patel', phone: '(415) 555-0199', lastUsed: 'Yesterday' },
@@ -68,15 +72,25 @@ export const SettingsScreen = () => {
     return presetDateRange(rangePreset);
   }, [rangePreset, customStart, customEnd]);
 
+  React.useEffect(() => {
+    const loadConnections = async () => {
+      const [drive, dropbox] = await Promise.all([
+        getCloudProviderConnected('google_drive'),
+        getCloudProviderConnected('dropbox'),
+      ]);
+      setDriveConnected(drive);
+      setDropboxConnected(dropbox);
+    };
+    loadConnections();
+  }, []);
+
   const showToast = (message: string, kind: 'success' | 'error' | 'info' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ kind, message });
-    toastTimerRef.current = setTimeout(() => {
-      setToast(null);
-    }, 3000);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
   };
 
-  const applyReminderSettings = async (enabled: boolean) => {
+  const applyReminderSettings = async (enabled: boolean, options?: { notify?: boolean }) => {
     try {
       const nextSettings = {
         enabled,
@@ -94,13 +108,17 @@ export const SettingsScreen = () => {
         }
         await updateReminderSettings(nextSettings);
         await recalculateReminder(babyId, nextSettings);
-        showToast('Reminder settings applied.', 'success');
+        if (options?.notify) {
+          showToast(`Reminders are enabled every ${nextSettings.intervalHours} hour(s).`, 'success');
+        }
         return;
       }
 
       await cancelReminder();
       await updateReminderSettings(nextSettings);
-      showToast('Reminders turned off.', 'success');
+      if (options?.notify) {
+        showToast('Reminders are disabled and pending notifications were cancelled.', 'success');
+      }
     } catch (error: any) {
       showToast(`Reminder update failed: ${error?.message ?? 'Unknown error'}`, 'error');
     }
@@ -197,9 +215,36 @@ export const SettingsScreen = () => {
     try {
       const lastBackupAt = await runBackupNow({ ...backupSettings, intervalDays: Number(backupIntervalDays) || 1 });
       await updateBackupSettings({ ...backupSettings, intervalDays: Number(backupIntervalDays) || 1, lastBackupAt });
-      showToast('Backup created and shared successfully.', 'success');
+      showToast('Backup created and uploaded successfully.', 'success');
     } catch (error: any) {
       showToast(`Backup failed: ${error?.message ?? 'Unknown backup error'}`, 'error');
+    }
+  };
+
+  const connectSelectedProvider = async () => {
+    try {
+      if (backupSettings.destination === 'share') {
+        showToast('Share destination does not require account connection.', 'info');
+        return;
+      }
+      await connectCloudProvider(backupSettings.destination);
+      if (backupSettings.destination === 'google_drive') setDriveConnected(true);
+      if (backupSettings.destination === 'dropbox') setDropboxConnected(true);
+      showToast(`${backupSettings.destination === 'google_drive' ? 'Google Drive' : 'Dropbox'} connected.`, 'success');
+    } catch (error: any) {
+      showToast(`Connection failed: ${error?.message ?? 'Could not connect provider.'}`, 'error');
+    }
+  };
+
+  const disconnectSelectedProvider = async () => {
+    try {
+      if (backupSettings.destination === 'share') return;
+      await disconnectCloudProvider(backupSettings.destination);
+      if (backupSettings.destination === 'google_drive') setDriveConnected(false);
+      if (backupSettings.destination === 'dropbox') setDropboxConnected(false);
+      showToast('Provider connection removed.', 'success');
+    } catch (error: any) {
+      showToast(`Disconnect failed: ${error?.message ?? 'Could not disconnect provider.'}`, 'error');
     }
   };
 
@@ -242,17 +287,19 @@ export const SettingsScreen = () => {
           </View>
         </View>
 
-        <SyncBanner
-          syncState={syncState}
-          syncError={syncError}
-          lastSyncAt={lastSyncAt}
-          enabled={supabaseEnabled}
-        />
+        <SyncBanner syncState={syncState} syncError={syncError} lastSyncAt={lastSyncAt} enabled={supabaseEnabled} />
+
         {toast ? (
-          <View style={[styles.toast, toast.kind === 'error' ? styles.toastError : toast.kind === 'info' ? styles.toastInfo : styles.toastSuccess]}>
+          <View
+            style={[
+              styles.toast,
+              toast.kind === 'error' ? styles.toastError : toast.kind === 'info' ? styles.toastInfo : styles.toastSuccess,
+            ]}
+          >
             <Text style={styles.toastText}>{toast.message}</Text>
           </View>
         ) : null}
+
         <Card title="Units">
           <Row>
             <Ionicons name="options-outline" size={16} color="#334155" />
@@ -298,14 +345,11 @@ export const SettingsScreen = () => {
 
           <Row>
             <Text style={styles.label}>Allow during quiet hours</Text>
-            <Switch
-              value={reminderSettings.allowDuringQuietHours}
-              onValueChange={toggleQuietHours}
-            />
+            <Switch value={reminderSettings.allowDuringQuietHours} onValueChange={toggleQuietHours} />
           </Row>
 
           <View style={styles.buttonGroup}>
-            <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled)} />
+            <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled, { notify: true })} />
           </View>
         </Card>
 
@@ -316,10 +360,7 @@ export const SettingsScreen = () => {
           </Row>
           <Row>
             <Text style={styles.label}>Enable smart alerts</Text>
-            <Switch
-              value={smartAlertSettings.enabled}
-              onValueChange={toggleSmartAlerts}
-            />
+            <Switch value={smartAlertSettings.enabled} onValueChange={toggleSmartAlerts} />
           </Row>
           <Label>Feed gap warning (hours)</Label>
           <Input value={feedGapHours} onChangeText={setFeedGapHours} keyboardType="decimal-pad" />
@@ -359,9 +400,7 @@ export const SettingsScreen = () => {
             </>
           ) : null}
 
-          <Text style={styles.sub}>
-            Range: {formatDateTime(dateRange.start.toISOString())} - {formatDateTime(dateRange.end.toISOString())}
-          </Text>
+          <Text style={styles.sub}>Range: {formatDateTime(dateRange.start.toISOString())} - {formatDateTime(dateRange.end.toISOString())}</Text>
 
           <View style={styles.buttonGroup}>
             <Button title="Export PDF" onPress={() => runExport('pdf')} />
@@ -381,38 +420,24 @@ export const SettingsScreen = () => {
           <Label>Destination</Label>
           <Row>
             <SelectPill label="Share" selected={backupSettings.destination === 'share'} onPress={() => setBackupDestination('share')} />
-            <SelectPill
-              label="Google Drive"
-              selected={backupSettings.destination === 'google_drive'}
-              onPress={() => setBackupDestination('google_drive')}
-            />
-            <SelectPill
-              label="Dropbox"
-              selected={backupSettings.destination === 'dropbox'}
-              onPress={() => setBackupDestination('dropbox')}
-            />
+            <SelectPill label="Google Drive" selected={backupSettings.destination === 'google_drive'} onPress={() => setBackupDestination('google_drive')} />
+            <SelectPill label="Dropbox" selected={backupSettings.destination === 'dropbox'} onPress={() => setBackupDestination('dropbox')} />
           </Row>
-          <Text style={styles.sub}>Google Drive/Dropbox use the iOS Share Sheet destination picker.</Text>
+          <Text style={styles.sub}>Google Drive: {driveConnected ? 'Connected' : 'Not connected'} | Dropbox: {dropboxConnected ? 'Connected' : 'Not connected'}</Text>
           <Label>Backup interval (days)</Label>
           <Input value={backupIntervalDays} onChangeText={setBackupIntervalDays} keyboardType="number-pad" />
           <Row>
             <Text style={styles.label}>Include PDF</Text>
-            <Switch
-              value={backupSettings.includePdf}
-              onValueChange={(includePdf) => updateBackupSettings({ ...backupSettings, includePdf })}
-            />
+            <Switch value={backupSettings.includePdf} onValueChange={(includePdf) => updateBackupSettings({ ...backupSettings, includePdf })} />
           </Row>
           <Row>
             <Text style={styles.label}>Include Excel</Text>
-            <Switch
-              value={backupSettings.includeExcel}
-              onValueChange={(includeExcel) => updateBackupSettings({ ...backupSettings, includeExcel })}
-            />
+            <Switch value={backupSettings.includeExcel} onValueChange={(includeExcel) => updateBackupSettings({ ...backupSettings, includeExcel })} />
           </Row>
-          <Text style={styles.sub}>
-            Last backup: {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}
-          </Text>
+          <Text style={styles.sub}>Last backup: {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}</Text>
           <View style={styles.buttonGroup}>
+            <Button title="Connect Selected Provider" variant="secondary" onPress={connectSelectedProvider} />
+            <Button title="Disconnect Selected Provider" variant="danger" onPress={disconnectSelectedProvider} />
             <Button title="Apply Backup Settings" variant="secondary" onPress={applyBackupSettings} />
             <Button title="Run Backup Now" onPress={onRunBackupNow} />
           </View>

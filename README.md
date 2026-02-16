@@ -58,6 +58,8 @@ npm install
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID=YOUR_GOOGLE_DRIVE_OAUTH_CLIENT_ID
+EXPO_PUBLIC_DROPBOX_APP_KEY=YOUR_DROPBOX_APP_KEY
 ```
 
 Legacy fallback also supported:
@@ -197,7 +199,10 @@ npm run ios
 - `exportChartImage(chartId, dateRange)`
 - `exportPdf(dateRange)`
 - `exportExcel(dateRange)`
-- `Settings -> Auto Backup` supports scheduled export backups (Share Sheet, Google Drive, Dropbox target via Share Sheet)
+- `Settings -> Auto Backup` supports scheduled export backups to:
+  - Share Sheet
+  - Google Drive (direct upload after OAuth connect)
+  - Dropbox (direct upload after OAuth connect)
 
 Excel sheets:
 - `FeedEvents`
@@ -244,6 +249,17 @@ Excel sheets:
 - Default units on fresh install:
   - weight: `lb`
   - temperature: `F`
+
+## Google Drive / Dropbox setup
+- Add iOS redirect URI support using app scheme `babylog` (already configured in app config).
+- Configure OAuth apps in provider consoles:
+  - Google OAuth client: add redirect URI from `AuthSession.makeRedirectUri({ scheme: 'babylog' })`
+  - Dropbox app: add same redirect URI in OAuth redirect list
+- In app:
+  - `Settings -> Auto Backup`
+  - Choose destination
+  - Tap `Connect Selected Provider`
+  - Run backup
 
 ## Supabase env troubleshooting
 - Ensure the file is exactly `/Users/simeon/Documents/MY APPS/Shyla/.env`

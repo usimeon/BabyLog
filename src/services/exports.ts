@@ -14,6 +14,7 @@ import { milestoneRowsForRange } from '../db/milestoneRepo';
 import { getChartRef } from './chartCaptureRegistry';
 
 export type ExportKind = 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
+type ExportOptions = { kinds?: ExportKind[]; share?: boolean };
 
 const fileNameDatePart = () => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -58,7 +59,7 @@ const summaryFromFeeds = (rows: Array<{ amount_ml?: number | null; timestamp: st
   };
 };
 
-export const exportPdf = async (dateRange: DateRange, options?: { kinds?: ExportKind[] }) => {
+export const exportPdf = async (dateRange: DateRange, options?: ExportOptions) => {
   const baby = await getOrCreateDefaultBaby();
   const allFeeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
   const allMeasurements = await measurementRowsForRange(
@@ -137,11 +138,13 @@ export const exportPdf = async (dateRange: DateRange, options?: { kinds?: Export
   `;
 
   const file = await Print.printToFileAsync({ html });
-  await ensureShareAvailable(file.uri);
+  if (options?.share !== false) {
+    await ensureShareAvailable(file.uri);
+  }
   return file.uri;
 };
 
-export const exportExcel = async (dateRange: DateRange, options?: { kinds?: ExportKind[] }) => {
+export const exportExcel = async (dateRange: DateRange, options?: ExportOptions) => {
   const baby = await getOrCreateDefaultBaby();
   const allFeeds = await feedRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
   const allMeasurements = await measurementRowsForRange(
@@ -249,6 +252,8 @@ export const exportExcel = async (dateRange: DateRange, options?: { kinds?: Expo
     encoding: FileSystem.EncodingType.Base64,
   });
 
-  await ensureShareAvailable(uri);
+  if (options?.share !== false) {
+    await ensureShareAvailable(uri);
+  }
   return uri;
 };
