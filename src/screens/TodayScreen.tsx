@@ -13,7 +13,7 @@ import { SyncBanner } from '../components/SyncBanner';
 
 export const TodayScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, reminderSettings, amountUnit, syncNow, syncState, syncError, lastSyncAt, supabaseEnabled } =
+  const { babyId, reminderSettings, amountUnit, syncNow, syncState, syncError, lastSyncAt, supabaseEnabled, dataVersion } =
     useAppContext();
   const [summary, setSummary] = useState<FeedSummary>({
     lastFeedTime: undefined as string | undefined,
@@ -33,6 +33,10 @@ export const TodayScreen = () => {
       syncNow();
     }, [load]),
   );
+
+  React.useEffect(() => {
+    load();
+  }, [dataVersion, load]);
 
   return (
     <SafeAreaView style={styles.safe}>

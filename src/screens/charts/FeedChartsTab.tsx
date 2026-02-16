@@ -10,7 +10,7 @@ import { CaptureChart } from '../../components/CaptureChart';
 import { mlToDisplay } from '../../utils/units';
 
 export const FeedChartsTab = () => {
-  const { babyId, amountUnit } = useAppContext();
+  const { babyId, amountUnit, dataVersion } = useAppContext();
   const [days, setDays] = useState<7 | 30>(7);
   const [dailyData, setDailyData] = useState<Array<{ x: string; y: number }>>([]);
   const [intervalData, setIntervalData] = useState<Array<{ x: string; y: number }>>([]);
@@ -28,7 +28,7 @@ export const FeedChartsTab = () => {
 
   useEffect(() => {
     load();
-  }, [babyId, days, amountUnit]);
+  }, [babyId, days, amountUnit, dataVersion]);
 
   const onExportImage = async () => {
     try {

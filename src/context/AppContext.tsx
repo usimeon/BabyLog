@@ -29,12 +29,14 @@ type AppContextValue = {
   syncState: 'idle' | 'syncing' | 'success' | 'error';
   syncError: string | null;
   lastSyncAt: string | null;
+  dataVersion: number;
   refreshAppState: () => Promise<void>;
   updateAmountUnit: (unit: 'ml' | 'oz') => Promise<void>;
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
   updateReminderSettings: (settings: ReminderSettings) => Promise<void>;
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
+  bumpDataVersion: () => void;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -57,6 +59,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
 
   const refreshSession = async () => {
     const next = await getCurrentSession();
@@ -103,11 +106,16 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       setSyncError(null);
       await syncAll();
       await refreshAppState();
+      setDataVersion((prev) => prev + 1);
       setSyncState('success');
     } catch (error: any) {
       setSyncState('error');
       setSyncError(error?.message ?? 'Sync failed');
     }
+  };
+
+  const bumpDataVersion = () => {
+    setDataVersion((prev) => prev + 1);
   };
 
   useEffect(() => {
@@ -151,14 +159,27 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       syncState,
       syncError,
       lastSyncAt,
+      dataVersion,
       refreshAppState,
       updateAmountUnit,
       updateWeightUnit,
       updateReminderSettings,
       refreshSession,
       syncNow,
+      bumpDataVersion,
     }),
-    [initialized, babyId, amountUnit, weightUnit, reminderSettings, session, syncState, syncError, lastSyncAt],
+    [
+      initialized,
+      babyId,
+      amountUnit,
+      weightUnit,
+      reminderSettings,
+      session,
+      syncState,
+      syncError,
+      lastSyncAt,
+      dataVersion,
+    ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -10,7 +10,7 @@ import { CaptureChart } from '../../components/CaptureChart';
 import { kgToDisplay } from '../../utils/units';
 
 export const WeightChartsTab = () => {
-  const { babyId, weightUnit } = useAppContext();
+  const { babyId, weightUnit, dataVersion } = useAppContext();
   const [points, setPoints] = useState<Array<{ x: string; y: number }>>([]);
 
   const load = async () => {
@@ -21,7 +21,7 @@ export const WeightChartsTab = () => {
 
   useEffect(() => {
     load();
-  }, [babyId, weightUnit]);
+  }, [babyId, weightUnit, dataVersion]);
 
   const onExportImage = async () => {
     try {

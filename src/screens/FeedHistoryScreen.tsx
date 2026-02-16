@@ -14,7 +14,7 @@ const filters = ['all', 'breast', 'bottle', 'formula', 'solids'] as const;
 
 export const FeedHistoryScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, amountUnit, reminderSettings, syncNow } = useAppContext();
+  const { babyId, amountUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } = useAppContext();
   const [typeFilter, setTypeFilter] = useState<(typeof filters)[number]>('all');
   const [items, setItems] = useState<any[]>([]);
 
@@ -29,6 +29,10 @@ export const FeedHistoryScreen = () => {
     }, [load]),
   );
 
+  React.useEffect(() => {
+    load();
+  }, [dataVersion, load]);
+
   const onDelete = async (id: string) => {
     Alert.alert('Delete feed', 'Remove this feed?', [
       { text: 'Cancel', style: 'cancel' },
@@ -39,6 +43,7 @@ export const FeedHistoryScreen = () => {
           await softDeleteFeed(id);
           await recalculateReminder(babyId, reminderSettings);
           await syncNow();
+          bumpDataVersion();
           load();
         },
       },

@@ -9,7 +9,7 @@ import { displayToKg, formatWeight, kgToDisplay } from '../utils/units';
 import { formatDateTime } from '../utils/time';
 
 export const MeasurementsScreen = () => {
-  const { babyId, weightUnit, syncNow } = useAppContext();
+  const { babyId, weightUnit, syncNow, bumpDataVersion, dataVersion } = useAppContext();
   const [items, setItems] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -29,6 +29,10 @@ export const MeasurementsScreen = () => {
       load();
     }, [load]),
   );
+
+  React.useEffect(() => {
+    load();
+  }, [dataVersion, load]);
 
   const reset = () => {
     setEditingId(null);
@@ -61,6 +65,7 @@ export const MeasurementsScreen = () => {
     }
 
     await syncNow();
+    bumpDataVersion();
     reset();
     load();
   };
@@ -83,6 +88,7 @@ export const MeasurementsScreen = () => {
         onPress: async () => {
           await softDeleteMeasurement(id);
           await syncNow();
+          bumpDataVersion();
           load();
         },
       },

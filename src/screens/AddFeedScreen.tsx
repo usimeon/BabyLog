@@ -13,7 +13,7 @@ const feedTypes: FeedInput['type'][] = ['breast', 'bottle', 'formula', 'solids']
 const sides: FeedInput['side'][] = ['left', 'right', 'both', 'none'];
 
 export const AddFeedScreen = ({ route, navigation }: NativeStackScreenProps<RootStackParamList, 'AddFeed'>) => {
-  const { babyId, amountUnit, reminderSettings, syncNow } = useAppContext();
+  const { babyId, amountUnit, reminderSettings, syncNow, bumpDataVersion } = useAppContext();
   const feedId = route.params?.feedId;
 
   const [timestamp, setTimestamp] = useState(new Date());
@@ -64,6 +64,7 @@ export const AddFeedScreen = ({ route, navigation }: NativeStackScreenProps<Root
 
       await recalculateReminder(babyId, reminderSettings);
       await syncNow();
+      bumpDataVersion();
       navigation.goBack();
     } catch (error: any) {
       Alert.alert('Failed to save', error?.message ?? 'Unknown error');
@@ -85,6 +86,7 @@ export const AddFeedScreen = ({ route, navigation }: NativeStackScreenProps<Root
             await softDeleteFeed(feedId);
             await recalculateReminder(babyId, reminderSettings);
             await syncNow();
+            bumpDataVersion();
             navigation.goBack();
           } catch (error: any) {
             Alert.alert('Failed to delete', error?.message ?? 'Unknown error');

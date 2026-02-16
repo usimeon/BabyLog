@@ -28,6 +28,7 @@ export const SettingsScreen = () => {
     syncState,
     syncError,
     lastSyncAt,
+    bumpDataVersion,
   } = useAppContext();
 
   const [intervalHours, setIntervalHours] = useState(String(reminderSettings.intervalHours));
@@ -106,6 +107,7 @@ export const SettingsScreen = () => {
       await clearDemoData(babyId);
       await seedDemoData(babyId);
       await syncNow();
+      bumpDataVersion();
       Alert.alert('Demo data added', 'Sample feeds and measurements were generated.');
     } catch (error: any) {
       Alert.alert('Seed failed', error?.message ?? 'Unknown error');
@@ -116,6 +118,7 @@ export const SettingsScreen = () => {
     try {
       await clearDemoData(babyId);
       await syncNow();
+      bumpDataVersion();
       Alert.alert('Data cleared', 'Feed and measurement records were removed.');
     } catch (error: any) {
       Alert.alert('Clear failed', error?.message ?? 'Unknown error');
