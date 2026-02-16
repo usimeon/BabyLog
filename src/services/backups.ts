@@ -11,7 +11,7 @@ const isDue = (lastBackupAt: string | null | undefined, intervalDays: number) =>
   return Date.now() >= nextDueAt;
 };
 
-export const runBackupNow = async (settings: BackupSettings) => {
+export const runBackupNow = async (settings: BackupSettings, options?: { silent?: boolean }) => {
   const range = backupRange();
   const exported: string[] = [];
 
@@ -32,12 +32,14 @@ export const runBackupNow = async (settings: BackupSettings) => {
       ? 'Dropbox (via Share Sheet)'
       : 'Share Sheet';
 
-  Alert.alert('Backup complete', `${exported.join(' + ')} exported for ${destinationLabel}.`);
+  if (!options?.silent) {
+    Alert.alert('Backup complete', `${exported.join(' + ')} exported for ${destinationLabel}.`);
+  }
   return new Date().toISOString();
 };
 
 export const runAutoBackupIfDue = async (settings: BackupSettings) => {
   if (!settings.enabled) return null;
   if (!isDue(settings.lastBackupAt, settings.intervalDays)) return null;
-  return runBackupNow(settings);
+  return runBackupNow(settings, { silent: true });
 };

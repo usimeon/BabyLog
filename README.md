@@ -158,6 +158,7 @@ npm run ios
 ### Charts
 - Feed chart for last 7/30 days totals + interval trend
 - Weight chart over time with percentile reference overlay (P10/P50/P90) and latest percentile estimate
+- Care chart tab with temperature trend, diaper/day bars, and medication/day bars
 - Chart export to PNG using view capture
 
 ### Exports
