@@ -5,6 +5,8 @@ export type AmountUnit = 'ml' | 'oz';
 export type WeightUnit = 'kg' | 'lb';
 export type TemperatureUnit = 'c' | 'f';
 export type PoopSize = 'small' | 'medium' | 'large';
+export type MedicationDoseUnit = 'ml' | 'mg' | 'drops' | 'tablet';
+export type BackupDestination = 'share' | 'google_drive' | 'dropbox';
 
 export interface BabyProfile {
   id: string;
@@ -77,6 +79,51 @@ export interface DiaperLog {
   updated_at: string;
   deleted_at?: string | null;
   dirty: number;
+}
+
+export interface MedicationLog {
+  id: string;
+  baby_id: string;
+  timestamp: string;
+  medication_name: string;
+  dose_value: number;
+  dose_unit: MedicationDoseUnit;
+  min_interval_hours?: number | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  dirty: number;
+}
+
+export interface Milestone {
+  id: string;
+  baby_id: string;
+  timestamp: string;
+  title: string;
+  notes?: string | null;
+  photo_uri?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  dirty: number;
+}
+
+export interface SmartAlertSettings {
+  enabled: boolean;
+  feedGapHours: number;
+  diaperGapHours: number;
+  feverThresholdC: number;
+  lowFeedsPerDay: number;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  destination: BackupDestination;
+  intervalDays: number;
+  includePdf: boolean;
+  includeExcel: boolean;
+  lastBackupAt?: string | null;
 }
 
 export interface DateRange {

@@ -9,9 +9,11 @@ import { diaperRowsForRange } from '../db/diaperRepo';
 import { feedRowsForRange } from '../db/feedRepo';
 import { measurementRowsForRange } from '../db/measurementRepo';
 import { temperatureRowsForRange } from '../db/temperatureRepo';
+import { medicationRowsForRange } from '../db/medicationRepo';
+import { milestoneRowsForRange } from '../db/milestoneRepo';
 import { getChartRef } from './chartCaptureRegistry';
 
-export type ExportKind = 'feed' | 'measurement' | 'temperature' | 'diaper';
+export type ExportKind = 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
 
 const fileNameDatePart = () => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -70,6 +72,8 @@ export const exportPdf = async (dateRange: DateRange, options?: { kinds?: Export
     dateRange.end.toISOString(),
   );
   const allDiapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMedications = await medicationRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMilestones = await milestoneRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
 
   const kinds = options?.kinds;
   const include = (kind: ExportKind) => !kinds || kinds.includes(kind);
@@ -77,6 +81,8 @@ export const exportPdf = async (dateRange: DateRange, options?: { kinds?: Export
   const measurements = include('measurement') ? allMeasurements : [];
   const temperatures = include('temperature') ? allTemperatures : [];
   const diapers = include('diaper') ? allDiapers : [];
+  const medications = include('medication') ? allMedications : [];
+  const milestones = include('milestone') ? allMilestones : [];
 
   const feedImageRef = getChartRef('feeds');
   const weightImageRef = getChartRef('weight');
@@ -120,6 +126,8 @@ export const exportPdf = async (dateRange: DateRange, options?: { kinds?: Export
           <tr><th>Measurements</th><td>${measurements.length}</td></tr>
           <tr><th>Temperature logs</th><td>${temperatures.length}</td></tr>
           <tr><th>Poop/Pee logs</th><td>${diapers.length}</td></tr>
+          <tr><th>Medication logs</th><td>${medications.length}</td></tr>
+          <tr><th>Milestones</th><td>${milestones.length}</td></tr>
         </table>
 
         ${feedChartDataUri ? `<h2>Feed chart</h2><img src="${feedChartDataUri}" />` : ''}
@@ -147,6 +155,8 @@ export const exportExcel = async (dateRange: DateRange, options?: { kinds?: Expo
     dateRange.end.toISOString(),
   );
   const allDiapers = await diaperRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMedications = await medicationRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
+  const allMilestones = await milestoneRowsForRange(baby.id, dateRange.start.toISOString(), dateRange.end.toISOString());
 
   const kinds = options?.kinds;
   const include = (kind: ExportKind) => !kinds || kinds.includes(kind);
@@ -154,6 +164,8 @@ export const exportExcel = async (dateRange: DateRange, options?: { kinds?: Expo
   const measurements = include('measurement') ? allMeasurements : [];
   const temperatures = include('temperature') ? allTemperatures : [];
   const diapers = include('diaper') ? allDiapers : [];
+  const medications = include('medication') ? allMedications : [];
+  const milestones = include('milestone') ? allMilestones : [];
 
   const dailySummaryMap = new Map<string, number>();
   feeds.forEach((feed) => {
@@ -204,10 +216,30 @@ export const exportExcel = async (dateRange: DateRange, options?: { kinds?: Expo
     notes: d.notes ?? '',
   }));
 
+  const medicationData = medications.map((m) => ({
+    id: m.id,
+    timestamp: m.timestamp,
+    medication_name: m.medication_name,
+    dose_value: m.dose_value,
+    dose_unit: m.dose_unit,
+    min_interval_hours: m.min_interval_hours ?? '',
+    notes: m.notes ?? '',
+  }));
+
+  const milestoneData = milestones.map((m) => ({
+    id: m.id,
+    timestamp: m.timestamp,
+    title: m.title,
+    notes: m.notes ?? '',
+    photo_uri: m.photo_uri ?? '',
+  }));
+
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(feedData), 'FeedEvents');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(measurementData), 'Measurements');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(temperatureData), 'TemperatureLogs');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(diaperData), 'DiaperLogs');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(medicationData), 'MedicationLogs');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(milestoneData), 'Milestones');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dailySummaryData), 'DailySummary');
 
   const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });

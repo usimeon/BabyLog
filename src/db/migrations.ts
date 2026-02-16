@@ -100,6 +100,46 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_diaper_logs_dirty ON diaper_logs (dirty);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS medication_logs (
+        local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        baby_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        medication_name TEXT NOT NULL,
+        dose_value REAL NOT NULL,
+        dose_unit TEXT NOT NULL,
+        min_interval_hours REAL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        dirty INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_medication_logs_baby_timestamp ON medication_logs (baby_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_medication_logs_dirty ON medication_logs (dirty);
+
+      CREATE TABLE IF NOT EXISTS milestones (
+        local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        baby_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        photo_uri TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        dirty INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_milestones_baby_timestamp ON milestones (baby_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_milestones_dirty ON milestones (dirty);
+    `,
+  },
 ];
 
 export const migrate = async () => {

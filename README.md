@@ -132,18 +132,19 @@ npm run ios
 ### Care logs
 - Temperature tracking (timestamp, temperature C, notes)
 - Poop/Pee tracking (timestamp, pee yes/no, poop yes/no, poop size small/medium/large, notes)
+- Medication tracking (name, dose, dose unit, optional minimum spacing)
+- Milestones (title, notes, optional photo)
 - Managed from unified `Logs` timeline + `Add Entry` screen
 
 ### Logs workspace
-- Single timeline for feed, growth, temperature, and diaper entries
+- Single timeline for feed, growth, temperature, diaper, medication, and milestone entries
 - Tap any log entry to edit inline in `Add Entry`
 - Long press to delete
 - Star icon to pin/unpin important entries, with `pinned` filter
 - Export filtered/ranged Logs view directly to PDF or Excel
 - Includes:
   - Today-at-a-glance counters
-  - Safety alerts (missed feed interval, high temp, diaper gap)
-  - 6-week activity heatmap
+  - Smart safety alerts (feed gap, high temp, diaper gap, low feeds/day, medication spacing)
 
 ### Reminders
 - Settings:
@@ -156,18 +157,30 @@ npm run ios
 
 ### Charts
 - Feed chart for last 7/30 days totals + interval trend
-- Weight chart over time
+- Weight chart over time with percentile reference overlay (P10/P50/P90) and latest percentile estimate
 - Chart export to PNG using view capture
 
 ### Exports
 - `exportChartImage(chartId, dateRange)`
 - `exportPdf(dateRange)`
 - `exportExcel(dateRange)`
+- `Settings -> Auto Backup` supports scheduled export backups (Share Sheet, Google Drive, Dropbox target via Share Sheet)
 
 Excel sheets:
 - `FeedEvents`
 - `Measurements`
+- `TemperatureLogs`
+- `DiaperLogs`
+- `MedicationLogs`
+- `Milestones`
 - `DailySummary`
+
+### Voice quick entry
+- `Today -> Voice Quick Entry` parses dictated text into structured entries
+- Works with iOS keyboard dictation microphone for quick hands-free logging
+
+### Routine suggestions
+- `Today` includes simple personalized routine suggestions from recent trends (feeds, diapers, temps, meds)
 
 ### Sync behavior
 - Offline-first writes to SQLite
@@ -177,7 +190,7 @@ Excel sheets:
 - Sync status banner shows in Today/Settings with last successful sync time
 
 ### QA helper
-- `Settings -> QA Tools -> Seed Demo Data` creates sample feeds/measurements quickly
+- `Settings -> QA Tools -> Seed Demo Data` creates ~6 months of sample feed/growth/temp/diaper/medication/milestone data
 - `Settings -> QA Tools -> Clear Local Tracking Data` resets local history
 
 ## Notes

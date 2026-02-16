@@ -5,17 +5,21 @@ import { initDatabase } from '../db';
 import { getOrCreateDefaultBaby } from '../db/babyRepo';
 import {
   getAmountUnit,
+  getBackupSettings,
   getLastSyncAt,
   getReminderSettings,
+  getSmartAlertSettings,
   getTempUnit,
   getWeightUnit,
   setAuthUserId,
   setAmountUnit,
+  saveBackupSettings,
+  saveSmartAlertSettings,
   setTempUnit,
   setWeightUnit,
   saveReminderSettings,
 } from '../db/settingsRepo';
-import { ReminderSettings } from '../types/models';
+import { BackupSettings, ReminderSettings, SmartAlertSettings } from '../types/models';
 import { isSupabaseConfigured, supabase } from '../supabase/client';
 import { getCurrentSession } from '../supabase/auth';
 import { syncAll } from '../supabase/sync';
@@ -27,6 +31,8 @@ type AppContextValue = {
   weightUnit: 'kg' | 'lb';
   tempUnit: 'c' | 'f';
   reminderSettings: ReminderSettings;
+  smartAlertSettings: SmartAlertSettings;
+  backupSettings: BackupSettings;
   session: Session | null;
   supabaseEnabled: boolean;
   syncState: 'idle' | 'syncing' | 'success' | 'error';
@@ -38,6 +44,8 @@ type AppContextValue = {
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
   updateTempUnit: (unit: 'c' | 'f') => Promise<void>;
   updateReminderSettings: (settings: ReminderSettings) => Promise<void>;
+  updateSmartAlertSettings: (settings: SmartAlertSettings) => Promise<void>;
+  updateBackupSettings: (settings: BackupSettings) => Promise<void>;
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
   bumpDataVersion: () => void;
@@ -53,6 +61,23 @@ const defaultReminder: ReminderSettings = {
   allowDuringQuietHours: false,
 };
 
+const defaultSmartAlerts: SmartAlertSettings = {
+  enabled: true,
+  feedGapHours: 4.5,
+  diaperGapHours: 8,
+  feverThresholdC: 38,
+  lowFeedsPerDay: 6,
+};
+
+const defaultBackupSettings: BackupSettings = {
+  enabled: false,
+  destination: 'share',
+  intervalDays: 1,
+  includePdf: true,
+  includeExcel: true,
+  lastBackupAt: null,
+};
+
 export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [initialized, setInitialized] = useState(false);
   const [babyId, setBabyId] = useState('');
@@ -60,6 +85,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('lb');
   const [tempUnit, setTempUnitState] = useState<'c' | 'f'>('f');
   const [reminderSettings, setReminderSettingsState] = useState<ReminderSettings>(defaultReminder);
+  const [smartAlertSettings, setSmartAlertSettingsState] = useState<SmartAlertSettings>(defaultSmartAlerts);
+  const [backupSettings, setBackupSettingsState] = useState<BackupSettings>(defaultBackupSettings);
   const [session, setSession] = useState<Session | null>(null);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -78,6 +105,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
     const nextTempUnit = (await getTempUnit()) as 'c' | 'f';
     const nextReminder = await getReminderSettings();
+    const nextSmartAlerts = await getSmartAlertSettings();
+    const nextBackupSettings = await getBackupSettings();
     const nextLastSyncAt = await getLastSyncAt();
 
     setBabyId(baby.id);
@@ -85,6 +114,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setWeightUnitState(nextWeightUnit);
     setTempUnitState(nextTempUnit);
     setReminderSettingsState(nextReminder);
+    setSmartAlertSettingsState(nextSmartAlerts);
+    setBackupSettingsState(nextBackupSettings);
     setLastSyncAtState(nextLastSyncAt);
   };
 
@@ -159,6 +190,16 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setReminderSettingsState(settings);
   };
 
+  const updateSmartAlertSettings = async (settings: SmartAlertSettings) => {
+    await saveSmartAlertSettings(settings);
+    setSmartAlertSettingsState(settings);
+  };
+
+  const updateBackupSettings = async (settings: BackupSettings) => {
+    await saveBackupSettings(settings);
+    setBackupSettingsState(settings);
+  };
+
   const value = useMemo<AppContextValue>(
     () => ({
       initialized,
@@ -167,6 +208,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       weightUnit,
       tempUnit,
       reminderSettings,
+      smartAlertSettings,
+      backupSettings,
       session,
       supabaseEnabled: isSupabaseConfigured,
       syncState,
@@ -178,6 +221,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       updateWeightUnit,
       updateTempUnit,
       updateReminderSettings,
+      updateSmartAlertSettings,
+      updateBackupSettings,
       refreshSession,
       syncNow,
       bumpDataVersion,
@@ -189,6 +234,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       weightUnit,
       tempUnit,
       reminderSettings,
+      smartAlertSettings,
+      backupSettings,
       session,
       syncState,
       syncError,

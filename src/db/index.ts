@@ -2,7 +2,9 @@ import { getOrCreateDefaultBaby } from './babyRepo';
 import { migrate } from './migrations';
 import {
   getAmountUnit,
+  getBackupSettings,
   getReminderSettings,
+  getSmartAlertSettings,
   getTempUnit,
   getWeightUnit,
   setAmountUnit,
@@ -27,5 +29,7 @@ export const initDatabase = async () => {
   if (!temp) await setTempUnit('f');
 
   await getReminderSettings();
+  await getSmartAlertSettings();
+  await getBackupSettings();
   initialized = true;
 };

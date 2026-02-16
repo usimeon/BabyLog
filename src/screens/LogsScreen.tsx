@@ -11,14 +11,16 @@ import { listFeeds, softDeleteFeed } from '../db/feedRepo';
 import { listMeasurements, softDeleteMeasurement } from '../db/measurementRepo';
 import { listTemperatureLogs, softDeleteTemperatureLog } from '../db/temperatureRepo';
 import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
+import { getMedicationSpacingAlert, listMedicationLogs, softDeleteMedicationLog } from '../db/medicationRepo';
+import { listMilestones, softDeleteMilestone } from '../db/milestoneRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
 import { exportExcel, exportPdf, ExportKind } from '../services/exports';
 import { DateRange } from '../types/models';
 import { formatDateTime, startOfDay } from '../utils/time';
 import { cToDisplay, formatAmount, formatTemp, formatWeight } from '../utils/units';
 
-type LogFilter = 'all' | 'pinned' | 'feed' | 'measurement' | 'temperature' | 'diaper';
-type EntryKind = 'feed' | 'measurement' | 'temperature' | 'diaper';
+type LogFilter = 'all' | 'pinned' | 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
+type EntryKind = 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
 
 type LogEntry = {
   id: string;
@@ -29,7 +31,7 @@ type LogEntry = {
   notes?: string | null;
 };
 
-const filters: LogFilter[] = ['all', 'pinned', 'feed', 'measurement', 'temperature', 'diaper'];
+const filters: LogFilter[] = ['all', 'pinned', 'feed', 'measurement', 'temperature', 'diaper', 'medication', 'milestone'];
 
 type GlanceStats = {
   feedsToday: number;
@@ -47,7 +49,7 @@ type RangePreset = 'today' | '7d' | '30d' | 'all';
 
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } =
+  const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, smartAlertSettings, syncNow, bumpDataVersion, dataVersion } =
     useAppContext();
   const [filter, setFilter] = useState<LogFilter>('all');
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -62,7 +64,6 @@ export const LogsScreen = () => {
     entriesToday: 0,
   });
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [dailyCounts, setDailyCounts] = useState<Array<{ day: string; count: number }>>([]);
 
   const logKey = (entry: Pick<LogEntry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 
@@ -72,11 +73,13 @@ export const LogsScreen = () => {
   }, []);
 
   const load = useCallback(async () => {
-    const [feeds, measurements, temps, diapers] = await Promise.all([
+    const [feeds, measurements, temps, diapers, medications, milestones] = await Promise.all([
       listFeeds(babyId),
       listMeasurements(babyId),
       listTemperatureLogs(babyId),
       listDiaperLogs(babyId),
+      listMedicationLogs(babyId),
+      listMilestones(babyId),
     ]);
 
     const mapped: LogEntry[] = [
@@ -112,6 +115,22 @@ export const LogsScreen = () => {
         subtitle: `${item.had_pee ? 'pee' : ''}${item.had_pee && item.had_poop ? ' + ' : ''}${item.had_poop ? `poop (${item.poop_size ?? 'small'})` : ''}`,
         notes: item.notes,
       })),
+      ...medications.map((item) => ({
+        id: item.id,
+        kind: 'medication' as const,
+        timestamp: item.timestamp,
+        title: `Medication • ${item.medication_name}`,
+        subtitle: `${item.dose_value} ${item.dose_unit}${item.min_interval_hours ? ` • min ${item.min_interval_hours}h` : ''}`,
+        notes: item.notes,
+      })),
+      ...milestones.map((item) => ({
+        id: item.id,
+        kind: 'milestone' as const,
+        timestamp: item.timestamp,
+        title: `Milestone • ${item.title}`,
+        subtitle: item.photo_uri ? 'Photo attached' : 'Milestone note',
+        notes: item.notes,
+      })),
     ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
     setEntries(mapped);
@@ -129,51 +148,65 @@ export const LogsScreen = () => {
     const latestTemp = temps[0];
     const lastDiaper = diapers[0];
 
-    if (lastFeed && reminderSettings.enabled) {
+    if (lastFeed && smartAlertSettings.enabled) {
       const hoursSinceFeed = (Date.now() - new Date(lastFeed.timestamp).getTime()) / 36e5;
-      if (hoursSinceFeed >= reminderSettings.intervalHours * 1.5) {
+      if (hoursSinceFeed >= smartAlertSettings.feedGapHours) {
         nextAlerts.push({
           level: 'warning',
-          message: `No recent feed for ${hoursSinceFeed.toFixed(1)}h (interval set to ${reminderSettings.intervalHours}h).`,
+          message: `No recent feed for ${hoursSinceFeed.toFixed(1)}h (threshold ${smartAlertSettings.feedGapHours}h).`,
         });
       }
     }
 
-    if (latestTemp && Number(latestTemp.temperature_c) >= 38) {
+    if (latestTemp && smartAlertSettings.enabled && Number(latestTemp.temperature_c) >= smartAlertSettings.feverThresholdC) {
       nextAlerts.push({
         level: 'critical',
         message: `Latest logged temperature is ${formatTemp(Number(latestTemp.temperature_c), tempUnit)}.`,
       });
     }
 
-    if (lastDiaper) {
+    if (lastDiaper && smartAlertSettings.enabled) {
       const hoursSinceDiaper = (Date.now() - new Date(lastDiaper.timestamp).getTime()) / 36e5;
-      if (hoursSinceDiaper >= 8) {
+      if (hoursSinceDiaper >= smartAlertSettings.diaperGapHours) {
         nextAlerts.push({
           level: 'warning',
-          message: `No diaper log for ${hoursSinceDiaper.toFixed(1)}h.`,
+          message: `No diaper log for ${hoursSinceDiaper.toFixed(1)}h (threshold ${smartAlertSettings.diaperGapHours}h).`,
+        });
+      }
+    }
+
+    if (smartAlertSettings.enabled) {
+      const feed24 = feeds.filter((x) => Date.now() - new Date(x.timestamp).getTime() <= 24 * 60 * 60 * 1000).length;
+      if (feed24 < smartAlertSettings.lowFeedsPerDay) {
+        nextAlerts.push({
+          level: 'warning',
+          message: `Only ${feed24} feed(s) in last 24h (target ${smartAlertSettings.lowFeedsPerDay}).`,
+        });
+      }
+
+      const spacingAlert = await getMedicationSpacingAlert(babyId);
+      if (spacingAlert) {
+        nextAlerts.push({
+          level: 'critical',
+          message: `${spacingAlert.medication} given after ${spacingAlert.actualHours.toFixed(1)}h (minimum ${spacingAlert.minHours}h).`,
         });
       }
     }
 
     setAlerts(nextAlerts);
-
-    const countsMap = new Map<string, number>();
-    for (let i = 41; i >= 0; i -= 1) {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      countsMap.set(d.toISOString().slice(0, 10), 0);
-    }
-    mapped.forEach((item) => {
-      const day = item.timestamp.slice(0, 10);
-      if (countsMap.has(day)) {
-        countsMap.set(day, (countsMap.get(day) ?? 0) + 1);
-      }
-    });
-    setDailyCounts(Array.from(countsMap.entries()).map(([day, count]) => ({ day, count })));
     await loadPinned();
-  }, [babyId, amountUnit, weightUnit, tempUnit, reminderSettings.enabled, reminderSettings.intervalHours, loadPinned]);
+  }, [
+    babyId,
+    amountUnit,
+    weightUnit,
+    tempUnit,
+    smartAlertSettings.enabled,
+    smartAlertSettings.feedGapHours,
+    smartAlertSettings.diaperGapHours,
+    smartAlertSettings.feverThresholdC,
+    smartAlertSettings.lowFeedsPerDay,
+    loadPinned,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -210,6 +243,10 @@ export const LogsScreen = () => {
       typed = byRange.filter((x) => x.kind === 'temperature');
     } else if (filter === 'diaper') {
       typed = byRange.filter((x) => x.kind === 'diaper');
+    } else if (filter === 'medication') {
+      typed = byRange.filter((x) => x.kind === 'medication');
+    } else if (filter === 'milestone') {
+      typed = byRange.filter((x) => x.kind === 'milestone');
     }
     const query = search.trim().toLowerCase();
     if (!query) return typed;
@@ -225,6 +262,8 @@ export const LogsScreen = () => {
       measurement: 0,
       temperature: 0,
       diaper: 0,
+      medication: 0,
+      milestone: 0,
     };
     for (const item of visible) counts[item.kind] += 1;
     return counts;
@@ -244,6 +283,8 @@ export const LogsScreen = () => {
           if (entry.kind === 'measurement') await softDeleteMeasurement(entry.id);
           if (entry.kind === 'temperature') await softDeleteTemperatureLog(entry.id);
           if (entry.kind === 'diaper') await softDeleteDiaperLog(entry.id);
+          if (entry.kind === 'medication') await softDeleteMedicationLog(entry.id);
+          if (entry.kind === 'milestone') await softDeleteMilestone(entry.id);
 
           await syncNow();
           bumpDataVersion();
@@ -289,6 +330,8 @@ export const LogsScreen = () => {
     if (filter === 'measurement') return ['measurement'];
     if (filter === 'temperature') return ['temperature'];
     if (filter === 'diaper') return ['diaper'];
+    if (filter === 'medication') return ['medication'];
+    if (filter === 'milestone') return ['milestone'];
     return undefined;
   }, [filter]);
 
@@ -306,15 +349,6 @@ export const LogsScreen = () => {
     } catch (error: any) {
       Alert.alert('Export failed', error?.message ?? 'Unknown error');
     }
-  };
-
-  const maxDailyCount = useMemo(() => Math.max(...dailyCounts.map((x) => x.count), 1), [dailyCounts]);
-  const heatColor = (count: number) => {
-    if (count <= 0) return '#e5e7eb';
-    const intensity = count / maxDailyCount;
-    if (intensity < 0.34) return '#bfdbfe';
-    if (intensity < 0.67) return '#60a5fa';
-    return '#2563eb';
   };
 
   return (
@@ -341,6 +375,16 @@ export const LogsScreen = () => {
                   label="+ Diaper"
                   selected={false}
                   onPress={() => navigation.navigate('AddEntry', { type: 'diaper' })}
+                />
+                <SelectPill
+                  label="+ Med"
+                  selected={false}
+                  onPress={() => navigation.navigate('AddEntry', { type: 'medication' })}
+                />
+                <SelectPill
+                  label="+ Milestone"
+                  selected={false}
+                  onPress={() => navigation.navigate('AddEntry', { type: 'milestone' })}
                 />
               </Row>
               <Button title="Refresh Logs" variant="secondary" onPress={load} />
@@ -381,25 +425,6 @@ export const LogsScreen = () => {
               ) : (
                 <Text style={styles.alertOk}>No active alerts right now.</Text>
               )}
-            </Card>
-
-            <Card title="Activity Heatmap (Last 6 Weeks)">
-              <View style={styles.heatWrap}>
-                {dailyCounts.map((item) => (
-                  <View
-                    key={item.day}
-                    style={[styles.heatCell, { backgroundColor: heatColor(item.count) }]}
-                  />
-                ))}
-              </View>
-              <Row>
-                <Text style={styles.heatLabel}>Less</Text>
-                <View style={[styles.heatCell, { backgroundColor: '#e5e7eb' }]} />
-                <View style={[styles.heatCell, { backgroundColor: '#bfdbfe' }]} />
-                <View style={[styles.heatCell, { backgroundColor: '#60a5fa' }]} />
-                <View style={[styles.heatCell, { backgroundColor: '#2563eb' }]} />
-                <Text style={styles.heatLabel}>More</Text>
-              </Row>
             </Card>
 
             <Card title="Filter">
@@ -460,6 +485,14 @@ export const LogsScreen = () => {
                 <View style={styles.statBox}>
                   <Text style={styles.statValue}>{filteredCounts.diaper}</Text>
                   <Text style={styles.statLabel}>diaper</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.medication}</Text>
+                  <Text style={styles.statLabel}>meds</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.milestone}</Text>
+                  <Text style={styles.statLabel}>milestones</Text>
                 </View>
               </Row>
             </Card>
@@ -560,21 +593,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
-  },
-  heatWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginBottom: 8,
-  },
-  heatCell: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-  },
-  heatLabel: {
-    fontSize: 11,
-    color: '#64748b',
   },
   row: {
     backgroundColor: '#fff',

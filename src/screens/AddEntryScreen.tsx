@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Switch, Text } from 'react-native';
+import { Alert, Image, SafeAreaView, ScrollView, StyleSheet, Switch, Text } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { RootStackParamList } from '../app/navigation';
 import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
@@ -9,15 +10,18 @@ import { addFeed, FeedInput, getFeedById, updateFeed } from '../db/feedRepo';
 import { addMeasurement, getMeasurementById, updateMeasurement } from '../db/measurementRepo';
 import { addTemperatureLog, getTemperatureById, updateTemperatureLog } from '../db/temperatureRepo';
 import { addDiaperLog, getDiaperById, updateDiaperLog } from '../db/diaperRepo';
-import { PoopSize } from '../types/models';
+import { addMedicationLog, getMedicationById, updateMedicationLog } from '../db/medicationRepo';
+import { addMilestone, getMilestoneById, updateMilestone } from '../db/milestoneRepo';
+import { MedicationDoseUnit, PoopSize } from '../types/models';
 import { cToDisplay, displayToC, displayToKg, displayToMl, kgToDisplay, mlToDisplay } from '../utils/units';
 import { recalculateReminder } from '../services/reminderCoordinator';
 
-type EntryType = 'feed' | 'measurement' | 'temperature' | 'diaper';
+type EntryType = 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
 
 const feedTypes: FeedInput['type'][] = ['breast', 'bottle', 'formula', 'solids'];
 const feedSides: FeedInput['side'][] = ['left', 'right', 'both', 'none'];
 const poopSizes: PoopSize[] = ['small', 'medium', 'large'];
+const doseUnits: MedicationDoseUnit[] = ['ml', 'mg', 'drops', 'tablet'];
 
 export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<RootStackParamList, 'AddEntry'>) => {
   const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, syncNow, bumpDataVersion } = useAppContext();
@@ -47,6 +51,16 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
   const [hadPoop, setHadPoop] = useState(false);
   const [poopSize, setPoopSize] = useState<PoopSize>('small');
   const [diaperNotes, setDiaperNotes] = useState('');
+
+  const [medicationName, setMedicationName] = useState('');
+  const [doseValue, setDoseValue] = useState('');
+  const [doseUnit, setDoseUnit] = useState<MedicationDoseUnit>('ml');
+  const [medIntervalHours, setMedIntervalHours] = useState('');
+  const [medNotes, setMedNotes] = useState('');
+
+  const [milestoneTitle, setMilestoneTitle] = useState('');
+  const [milestoneNotes, setMilestoneNotes] = useState('');
+  const [milestonePhotoUri, setMilestonePhotoUri] = useState<string | null>(null);
 
   const canHaveAmount = useMemo(() => feedType === 'bottle' || feedType === 'formula' || feedType === 'solids', [feedType]);
 
@@ -92,10 +106,48 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
         setPoopSize((d.poop_size as PoopSize) ?? 'small');
         setDiaperNotes(d.notes ?? '');
       }
+
+      if (entryType === 'medication') {
+        const m = await getMedicationById(entryId);
+        if (!m) return;
+        setTimestamp(new Date(m.timestamp));
+        setMedicationName(m.medication_name);
+        setDoseValue(String(m.dose_value));
+        setDoseUnit(m.dose_unit);
+        setMedIntervalHours(m.min_interval_hours ? String(m.min_interval_hours) : '');
+        setMedNotes(m.notes ?? '');
+      }
+
+      if (entryType === 'milestone') {
+        const m = await getMilestoneById(entryId);
+        if (!m) return;
+        setTimestamp(new Date(m.timestamp));
+        setMilestoneTitle(m.title);
+        setMilestoneNotes(m.notes ?? '');
+        setMilestonePhotoUri(m.photo_uri ?? null);
+      }
     };
 
     load();
   }, [entryId, entryType, amountUnit, weightUnit, tempUnit]);
+
+  const pickMilestonePhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Photo library permission is needed to attach milestone images.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (!result.canceled && result.assets.length) {
+      setMilestonePhotoUri(result.assets[0].uri);
+    }
+  };
 
   const save = async () => {
     try {
@@ -179,6 +231,49 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
         }
       }
 
+      if (entryType === 'medication') {
+        if (!medicationName.trim()) throw new Error('Medication name is required.');
+        const parsedDose = Number(doseValue);
+        if (!Number.isFinite(parsedDose) || parsedDose <= 0) {
+          throw new Error('Dose must be a valid number greater than zero.');
+        }
+        const interval = medIntervalHours ? Number(medIntervalHours) : null;
+        if (interval !== null && (!Number.isFinite(interval) || interval <= 0)) {
+          throw new Error('Minimum interval must be a positive number of hours.');
+        }
+
+        const payload = {
+          timestamp: timestamp.toISOString(),
+          medication_name: medicationName.trim(),
+          dose_value: parsedDose,
+          dose_unit: doseUnit,
+          min_interval_hours: interval,
+          notes: medNotes || null,
+        };
+
+        if (entryId) {
+          await updateMedicationLog(entryId, payload);
+        } else {
+          await addMedicationLog(babyId, payload);
+        }
+      }
+
+      if (entryType === 'milestone') {
+        if (!milestoneTitle.trim()) throw new Error('Milestone title is required.');
+        const payload = {
+          timestamp: timestamp.toISOString(),
+          title: milestoneTitle.trim(),
+          notes: milestoneNotes || null,
+          photo_uri: milestonePhotoUri,
+        };
+
+        if (entryId) {
+          await updateMilestone(entryId, payload);
+        } else {
+          await addMilestone(babyId, payload);
+        }
+      }
+
       await syncNow();
       bumpDataVersion();
       navigation.goBack();
@@ -209,6 +304,16 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
               label="Poop/Pee"
               selected={entryType === 'diaper'}
               onPress={() => !isEditing && setEntryType('diaper')}
+            />
+            <SelectPill
+              label="Medication"
+              selected={entryType === 'medication'}
+              onPress={() => !isEditing && setEntryType('medication')}
+            />
+            <SelectPill
+              label="Milestone"
+              selected={entryType === 'milestone'}
+              onPress={() => !isEditing && setEntryType('milestone')}
             />
           </Row>
 
@@ -314,6 +419,57 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
           </Card>
         ) : null}
 
+        {entryType === 'medication' ? (
+          <Card title="Medication Details">
+            <Label>Medication name</Label>
+            <Input value={medicationName} onChangeText={setMedicationName} placeholder="Tylenol" />
+
+            <Label>Dose value</Label>
+            <Input value={doseValue} onChangeText={setDoseValue} keyboardType="decimal-pad" placeholder="2.5" />
+
+            <Label>Dose unit</Label>
+            <Row>
+              {doseUnits.map((unit) => (
+                <SelectPill key={unit} label={unit} selected={doseUnit === unit} onPress={() => setDoseUnit(unit)} />
+              ))}
+            </Row>
+
+            <Label>Minimum spacing (hours)</Label>
+            <Input
+              value={medIntervalHours}
+              onChangeText={setMedIntervalHours}
+              keyboardType="decimal-pad"
+              placeholder="Optional (e.g. 4)"
+            />
+
+            <Label>Notes</Label>
+            <Input value={medNotes} onChangeText={setMedNotes} multiline style={{ minHeight: 80, textAlignVertical: 'top' }} />
+          </Card>
+        ) : null}
+
+        {entryType === 'milestone' ? (
+          <Card title="Milestone Details">
+            <Label>Title</Label>
+            <Input value={milestoneTitle} onChangeText={setMilestoneTitle} placeholder="First smile" />
+
+            <Label>Notes</Label>
+            <Input
+              value={milestoneNotes}
+              onChangeText={setMilestoneNotes}
+              multiline
+              style={{ minHeight: 80, textAlignVertical: 'top' }}
+            />
+
+            <Row>
+              <Button title={milestonePhotoUri ? 'Change Photo' : 'Attach Photo'} onPress={pickMilestonePhoto} variant="secondary" />
+              {milestonePhotoUri ? (
+                <Button title="Remove Photo" onPress={() => setMilestonePhotoUri(null)} variant="danger" />
+              ) : null}
+            </Row>
+            {milestonePhotoUri ? <Image source={{ uri: milestonePhotoUri }} style={styles.photoPreview} /> : null}
+          </Card>
+        ) : null}
+
         <Button title={busy ? 'Saving...' : isEditing ? 'Update Entry' : 'Save Entry'} onPress={save} />
       </ScrollView>
     </SafeAreaView>
@@ -325,4 +481,12 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 10 },
   label: { color: '#374151', fontWeight: '500' },
   hint: { color: '#64748b', fontSize: 12, marginTop: 8 },
+  photoPreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
 });

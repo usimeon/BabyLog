@@ -22,7 +22,14 @@ type RemoteBabyRow = {
   deleted_at?: string | null;
 };
 
-type SyncTable = 'babies' | 'feed_events' | 'measurements' | 'temperature_logs' | 'diaper_logs';
+type SyncTable =
+  | 'babies'
+  | 'feed_events'
+  | 'measurements'
+  | 'temperature_logs'
+  | 'diaper_logs'
+  | 'medication_logs'
+  | 'milestones';
 
 const markClean = async (table: SyncTable, ids: string[]) => {
   if (!ids.length) return;
@@ -40,7 +47,7 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
     if (remoteIds.has(baby.id)) continue;
     if (baby.dirty !== 1) continue;
 
-    const [feedCount, measurementCount, tempCount, diaperCount] = await Promise.all([
+    const [feedCount, measurementCount, tempCount, diaperCount, medicationCount, milestoneCount] = await Promise.all([
       getOne<{ count: number }>('SELECT COUNT(*) as count FROM feed_events WHERE baby_id = ? AND deleted_at IS NULL;', [
         baby.id,
       ]),
@@ -54,13 +61,22 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
       getOne<{ count: number }>('SELECT COUNT(*) as count FROM diaper_logs WHERE baby_id = ? AND deleted_at IS NULL;', [
         baby.id,
       ]),
+      getOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM medication_logs WHERE baby_id = ? AND deleted_at IS NULL;',
+        [baby.id],
+      ),
+      getOne<{ count: number }>('SELECT COUNT(*) as count FROM milestones WHERE baby_id = ? AND deleted_at IS NULL;', [
+        baby.id,
+      ]),
     ]);
 
     const hasData =
       (feedCount?.count ?? 0) > 0 ||
       (measurementCount?.count ?? 0) > 0 ||
       (tempCount?.count ?? 0) > 0 ||
-      (diaperCount?.count ?? 0) > 0;
+      (diaperCount?.count ?? 0) > 0 ||
+      (medicationCount?.count ?? 0) > 0 ||
+      (milestoneCount?.count ?? 0) > 0;
 
     // A reinstall can create a blank local baby before first pull; drop that placeholder to avoid duplicate babies.
     if (!hasData) {
@@ -78,9 +94,11 @@ const pushDirtyRows = async (userId: string) => {
   const dirtyMeasurements = await getAll<any>('SELECT * FROM measurements WHERE dirty = 1;');
   const dirtyTemperatures = await getAll<any>('SELECT * FROM temperature_logs WHERE dirty = 1;');
   const dirtyDiapers = await getAll<any>('SELECT * FROM diaper_logs WHERE dirty = 1;');
+  const dirtyMedications = await getAll<any>('SELECT * FROM medication_logs WHERE dirty = 1;');
+  const dirtyMilestones = await getAll<any>('SELECT * FROM milestones WHERE dirty = 1;');
 
   console.log(
-    `[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length} temps=${dirtyTemperatures.length} diapers=${dirtyDiapers.length}`,
+    `[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length} temps=${dirtyTemperatures.length} diapers=${dirtyDiapers.length} meds=${dirtyMedications.length} milestones=${dirtyMilestones.length}`,
   );
 
   if (dirtyBabies.length) {
@@ -176,6 +194,46 @@ const pushDirtyRows = async (userId: string) => {
     const { error } = await supabase.from('diaper_logs').upsert(payload, { onConflict: 'id' });
     if (error) throw error;
     await markClean('diaper_logs', dirtyDiapers.map((x) => x.id));
+  }
+
+  if (dirtyMedications.length) {
+    const payload = dirtyMedications.map((row) => ({
+      id: row.id,
+      user_id: userId,
+      baby_id: row.baby_id,
+      timestamp: row.timestamp,
+      medication_name: row.medication_name,
+      dose_value: row.dose_value,
+      dose_unit: row.dose_unit,
+      min_interval_hours: row.min_interval_hours,
+      notes: row.notes,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      deleted_at: row.deleted_at,
+    }));
+
+    const { error } = await supabase.from('medication_logs').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    await markClean('medication_logs', dirtyMedications.map((x) => x.id));
+  }
+
+  if (dirtyMilestones.length) {
+    const payload = dirtyMilestones.map((row) => ({
+      id: row.id,
+      user_id: userId,
+      baby_id: row.baby_id,
+      timestamp: row.timestamp,
+      title: row.title,
+      notes: row.notes,
+      photo_uri: row.photo_uri,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      deleted_at: row.deleted_at,
+    }));
+
+    const { error } = await supabase.from('milestones').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    await markClean('milestones', dirtyMilestones.map((x) => x.id));
   }
 };
 
@@ -298,6 +356,72 @@ const applyRemoteRow = async (table: SyncTable, row: any) => {
     return;
   }
 
+  if (table === 'medication_logs') {
+    await runSql(
+      `INSERT INTO medication_logs(
+        id, baby_id, timestamp, medication_name, dose_value, dose_unit, min_interval_hours, notes,
+        created_at, updated_at, deleted_at, dirty
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        baby_id = excluded.baby_id,
+        timestamp = excluded.timestamp,
+        medication_name = excluded.medication_name,
+        dose_value = excluded.dose_value,
+        dose_unit = excluded.dose_unit,
+        min_interval_hours = excluded.min_interval_hours,
+        notes = excluded.notes,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        deleted_at = excluded.deleted_at,
+        dirty = 0;`,
+      [
+        row.id,
+        row.baby_id,
+        row.timestamp,
+        row.medication_name,
+        row.dose_value,
+        row.dose_unit,
+        row.min_interval_hours,
+        row.notes,
+        row.created_at,
+        row.updated_at,
+        row.deleted_at,
+      ],
+    );
+    return;
+  }
+
+  if (table === 'milestones') {
+    await runSql(
+      `INSERT INTO milestones(
+        id, baby_id, timestamp, title, notes, photo_uri,
+        created_at, updated_at, deleted_at, dirty
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        baby_id = excluded.baby_id,
+        timestamp = excluded.timestamp,
+        title = excluded.title,
+        notes = excluded.notes,
+        photo_uri = excluded.photo_uri,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        deleted_at = excluded.deleted_at,
+        dirty = 0;`,
+      [
+        row.id,
+        row.baby_id,
+        row.timestamp,
+        row.title,
+        row.notes,
+        row.photo_uri,
+        row.created_at,
+        row.updated_at,
+        row.deleted_at,
+      ],
+    );
+    return;
+  }
+
   await runSql(
     `INSERT INTO diaper_logs(
       id, baby_id, timestamp, had_pee, had_poop, poop_size, notes,
@@ -338,12 +462,16 @@ const pullRemoteRows = async (userId: string) => {
     { data: measurements, error: measurementErr },
     { data: temperatures, error: tempErr },
     { data: diapers, error: diaperErr },
+    { data: medications, error: medicationErr },
+    { data: milestones, error: milestoneErr },
   ] = await Promise.all([
     supabase.from('babies').select('*').eq('user_id', userId),
     supabase.from('feed_events').select('*').eq('user_id', userId),
     supabase.from('measurements').select('*').eq('user_id', userId),
     supabase.from('temperature_logs').select('*').eq('user_id', userId),
     supabase.from('diaper_logs').select('*').eq('user_id', userId),
+    supabase.from('medication_logs').select('*').eq('user_id', userId),
+    supabase.from('milestones').select('*').eq('user_id', userId),
   ]);
 
   if (babyErr) throw babyErr;
@@ -351,9 +479,11 @@ const pullRemoteRows = async (userId: string) => {
   if (measurementErr) throw measurementErr;
   if (tempErr) throw tempErr;
   if (diaperErr) throw diaperErr;
+  if (medicationErr) throw medicationErr;
+  if (milestoneErr) throw milestoneErr;
 
   console.log(
-    `[sync] pulling remote rows babies=${babies.length} feeds=${feeds.length} measurements=${measurements.length} temps=${temperatures.length} diapers=${diapers.length}`,
+    `[sync] pulling remote rows babies=${babies.length} feeds=${feeds.length} measurements=${measurements.length} temps=${temperatures.length} diapers=${diapers.length} meds=${medications.length} milestones=${milestones.length}`,
   );
 
   for (const baby of babies) await applyRemoteRow('babies', baby);
@@ -361,6 +491,8 @@ const pullRemoteRows = async (userId: string) => {
   for (const measurement of measurements) await applyRemoteRow('measurements', measurement);
   for (const temp of temperatures) await applyRemoteRow('temperature_logs', temp);
   for (const diaper of diapers) await applyRemoteRow('diaper_logs', diaper);
+  for (const medication of medications) await applyRemoteRow('medication_logs', medication);
+  for (const milestone of milestones) await applyRemoteRow('milestones', milestone);
 };
 
 const fetchRemoteBabies = async (userId: string): Promise<RemoteBabyRow[]> => {

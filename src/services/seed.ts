@@ -2,6 +2,8 @@ import { addFeed } from '../db/feedRepo';
 import { addMeasurement } from '../db/measurementRepo';
 import { addTemperatureLog } from '../db/temperatureRepo';
 import { addDiaperLog } from '../db/diaperRepo';
+import { addMedicationLog } from '../db/medicationRepo';
+import { addMilestone } from '../db/milestoneRepo';
 import { runSql } from '../db/client';
 
 export const clearDemoData = async (babyId: string) => {
@@ -9,6 +11,8 @@ export const clearDemoData = async (babyId: string) => {
   await runSql('DELETE FROM measurements WHERE baby_id = ?;', [babyId]);
   await runSql('DELETE FROM temperature_logs WHERE baby_id = ?;', [babyId]);
   await runSql('DELETE FROM diaper_logs WHERE baby_id = ?;', [babyId]);
+  await runSql('DELETE FROM medication_logs WHERE baby_id = ?;', [babyId]);
+  await runSql('DELETE FROM milestones WHERE baby_id = ?;', [babyId]);
 };
 
 export const seedDemoData = async (babyId: string) => {
@@ -68,6 +72,30 @@ export const seedDemoData = async (babyId: string) => {
         had_poop: hadPoop ? 1 : 0,
         poop_size: hadPoop ? (d % 3 === 0 ? 'small' : d % 3 === 1 ? 'medium' : 'large') : null,
         notes: null,
+      });
+    }
+
+    if (day % 9 === 0) {
+      const medAt = new Date(dayBase);
+      medAt.setHours(8, 30, 0, 0);
+      await addMedicationLog(babyId, {
+        timestamp: medAt.toISOString(),
+        medication_name: day % 18 === 0 ? 'Tylenol' : 'Vitamin D',
+        dose_value: day % 18 === 0 ? 2.5 : 1,
+        dose_unit: day % 18 === 0 ? 'ml' : 'drops',
+        min_interval_hours: day % 18 === 0 ? 4 : null,
+        notes: null,
+      });
+    }
+
+    if (day % 30 === 0) {
+      const milestoneAt = new Date(dayBase);
+      milestoneAt.setHours(15, 0, 0, 0);
+      await addMilestone(babyId, {
+        timestamp: milestoneAt.toISOString(),
+        title: `Monthly milestone ${Math.floor((days - day) / 30) + 1}`,
+        notes: 'Auto-seeded milestone example.',
+        photo_uri: null,
       });
     }
   }

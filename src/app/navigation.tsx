@@ -11,15 +11,17 @@ import { LogsScreen } from '../screens/LogsScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
+import { VoiceQuickEntryScreen } from '../screens/VoiceQuickEntryScreen';
 
 export type RootStackParamList = {
   Main: undefined;
   AddEntry:
     | {
-        type?: 'feed' | 'measurement' | 'temperature' | 'diaper';
+        type?: 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
         entryId?: string;
       }
     | undefined;
+  VoiceQuickEntry: undefined;
   Auth: undefined;
 };
 
@@ -97,6 +99,7 @@ export const AppNavigation = () => {
           <>
             <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
             <Stack.Screen name="AddEntry" component={AddEntryScreen} options={{ title: 'Add Entry' }} />
+            <Stack.Screen name="VoiceQuickEntry" component={VoiceQuickEntryScreen} options={{ title: 'Voice Quick Entry' }} />
           </>
         )}
       </Stack.Navigator>
