@@ -74,6 +74,25 @@ npm run ios -- --clear
 
 If these env vars are missing, app still works fully local/offline.
 
+## 3.1) Terminal-based auto schema updates (recommended)
+
+This repo is configured for Supabase CLI migrations. Use these commands:
+
+```bash
+npm run db:login
+SUPABASE_PROJECT_REF=your_project_ref npm run db:setup
+```
+
+After that, future schema updates are one command:
+
+```bash
+npm run db:push
+```
+
+Key files:
+- `supabase/config.toml`
+- `supabase/migrations/20260216010000_init_babylog.sql`
+
 ## 4) Run typecheck
 
 ```bash
