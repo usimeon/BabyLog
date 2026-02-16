@@ -38,6 +38,8 @@ type AlertItem = {
   message: string;
 };
 
+type RangePreset = 'today' | '7d' | '30d' | 'all';
+
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } =
@@ -46,6 +48,7 @@ export const LogsScreen = () => {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [rangePreset, setRangePreset] = useState<RangePreset>('7d');
   const [glance, setGlance] = useState<GlanceStats>({
     feedsToday: 0,
     diapersToday: 0,
@@ -169,14 +172,40 @@ export const LogsScreen = () => {
   }, [dataVersion, load]);
 
   const visible = useMemo(() => {
-    const typed = filter === 'all' ? entries : entries.filter((x) => x.kind === filter);
+    const now = new Date();
+    const dayStart = startOfDay(now).getTime();
+    const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+    const byRange = entries.filter((x) => {
+      const ts = new Date(x.timestamp).getTime();
+      if (rangePreset === 'today') return ts >= dayStart;
+      if (rangePreset === '7d') return ts >= sevenDaysAgo;
+      if (rangePreset === '30d') return ts >= thirtyDaysAgo;
+      return true;
+    });
+
+    const typed = filter === 'all' ? byRange : byRange.filter((x) => x.kind === filter);
     const query = search.trim().toLowerCase();
     if (!query) return typed;
     return typed.filter((x) => {
       const text = `${x.kind} ${x.title} ${x.subtitle} ${x.notes ?? ''}`.toLowerCase();
       return text.includes(query);
     });
-  }, [entries, filter, search]);
+  }, [entries, filter, search, rangePreset]);
+
+  const filteredCounts = useMemo(() => {
+    const counts = {
+      feed: 0,
+      measurement: 0,
+      temperature: 0,
+      diaper: 0,
+    };
+    for (const item of visible) {
+      counts[item.kind] += 1;
+    }
+    return counts;
+  }, [visible]);
 
   const onDelete = (entry: LogEntry) => {
     Alert.alert('Delete entry', 'Remove this log entry?', [
@@ -306,6 +335,15 @@ export const LogsScreen = () => {
             </Card>
 
             <Card title="Filter">
+              <Text style={styles.filterTitle}>Range</Text>
+              <Row>
+                <SelectPill label="today" selected={rangePreset === 'today'} onPress={() => setRangePreset('today')} />
+                <SelectPill label="7d" selected={rangePreset === '7d'} onPress={() => setRangePreset('7d')} />
+                <SelectPill label="30d" selected={rangePreset === '30d'} onPress={() => setRangePreset('30d')} />
+                <SelectPill label="all" selected={rangePreset === 'all'} onPress={() => setRangePreset('all')} />
+              </Row>
+
+              <Text style={styles.filterTitle}>Type</Text>
               <Row>
                 {filters.map((option) => (
                   <SelectPill
@@ -324,21 +362,63 @@ export const LogsScreen = () => {
               />
               <Text style={styles.hint}>Tap to edit. Long press to delete.</Text>
             </Card>
+
+            <Card title="Filtered Snapshot">
+              <Row>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{visible.length}</Text>
+                  <Text style={styles.statLabel}>entries</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.feed}</Text>
+                  <Text style={styles.statLabel}>feeds</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.measurement}</Text>
+                  <Text style={styles.statLabel}>growth</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.temperature}</Text>
+                  <Text style={styles.statLabel}>temp</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{filteredCounts.diaper}</Text>
+                  <Text style={styles.statLabel}>diaper</Text>
+                </View>
+              </Row>
+            </Card>
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable
-            style={styles.row}
-            onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
-            onLongPress={() => onDelete(item)}
-          >
-            <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
-            <Text style={styles.sub}>{item.subtitle || '—'}</Text>
-            {item.notes ? <Text style={styles.sub}>{item.notes}</Text> : null}
-          </Pressable>
-        )}
+        renderItem={({ item, index }) => {
+          const itemDay = item.timestamp.slice(0, 10);
+          const prevDay = index > 0 ? visible[index - 1].timestamp.slice(0, 10) : '';
+          const showDayHeader = itemDay !== prevDay;
+
+          return (
+            <>
+              {showDayHeader ? (
+                <Text style={styles.dayHeader}>
+                  {new Date(`${itemDay}T00:00:00`).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </Text>
+              ) : null}
+              <Pressable
+                style={styles.row}
+                onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
+                onLongPress={() => onDelete(item)}
+              >
+                <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
+                <Text style={styles.sub}>{item.subtitle || '—'}</Text>
+                {item.notes ? <Text style={styles.sub}>{item.notes}</Text> : null}
+              </Pressable>
+            </>
+          );
+        }}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         ListEmptyComponent={<Text style={styles.empty}>No entries yet.</Text>}
         refreshing={refreshing}
@@ -353,6 +433,15 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   headerWrap: { paddingTop: 16, gap: 8 },
   hint: { color: '#6b7280', fontSize: 12, marginTop: 4 },
+  filterTitle: { color: '#475569', fontWeight: '600', marginTop: 8, marginBottom: 6 },
+  dayHeader: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
   statBox: {
     backgroundColor: '#f8fafc',
     borderColor: '#e2e8f0',
