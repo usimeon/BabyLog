@@ -126,13 +126,13 @@ npm run ios
 ### Measurements
 - Add/edit/delete measurements
 - Fields: timestamp, weight, length, head circumference, notes
-- List + weight chart
+- Managed from unified `Logs` timeline + `Add Entry` screen
 - New entries are created from one unified `Add Entry` screen
 
 ### Care logs
 - Temperature tracking (timestamp, temperature C, notes)
 - Poop/Pee tracking (timestamp, pee yes/no, poop yes/no, poop size small/medium/large, notes)
-- `Care` tab provides history + delete; creation happens in unified `Add Entry` screen
+- Managed from unified `Logs` timeline + `Add Entry` screen
 
 ### Reminders
 - Settings:

@@ -3,13 +3,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../context/AppContext';
 import { TodayScreen } from '../screens/TodayScreen';
 import { AddEntryScreen } from '../screens/AddEntryScreen';
-import { FeedHistoryScreen } from '../screens/FeedHistoryScreen';
-import { MeasurementsScreen } from '../screens/MeasurementsScreen';
-import { CareScreen } from '../screens/CareScreen';
+import { LogsScreen } from '../screens/LogsScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
@@ -22,9 +20,7 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Today: undefined;
-  FeedHistory: undefined;
-  Measurements: undefined;
-  Care: undefined;
+  Logs: undefined;
   Charts: undefined;
   Settings: undefined;
 };
@@ -37,16 +33,8 @@ const tabIcon = (routeName: keyof MainTabParamList, focused: boolean, color: str
     return <Ionicons name={focused ? 'sunny' : 'sunny-outline'} size={size} color={color} />;
   }
 
-  if (routeName === 'FeedHistory') {
-    return <MaterialCommunityIcons name={focused ? 'baby-bottle' : 'baby-bottle-outline'} size={size} color={color} />;
-  }
-
-  if (routeName === 'Measurements') {
-    return <MaterialCommunityIcons name={focused ? 'scale-bathroom' : 'scale-bathroom'} size={size} color={color} />;
-  }
-
-  if (routeName === 'Care') {
-    return <Ionicons name={focused ? 'water' : 'water-outline'} size={size} color={color} />;
+  if (routeName === 'Logs') {
+    return <Ionicons name={focused ? 'list' : 'list-outline'} size={size} color={color} />;
   }
 
   if (routeName === 'Charts') {
@@ -76,9 +64,7 @@ const MainTabs = () => (
     })}
   >
     <Tabs.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today' }} />
-    <Tabs.Screen name="FeedHistory" component={FeedHistoryScreen} options={{ title: 'Feed History', tabBarLabel: 'Feeds' }} />
-    <Tabs.Screen name="Measurements" component={MeasurementsScreen} options={{ title: 'Measurements', tabBarLabel: 'Growth' }} />
-    <Tabs.Screen name="Care" component={CareScreen} options={{ title: 'Care', tabBarLabel: 'Care' }} />
+    <Tabs.Screen name="Logs" component={LogsScreen} options={{ title: 'Logs', tabBarLabel: 'Logs' }} />
     <Tabs.Screen name="Charts" component={ChartsScreen} options={{ title: 'Charts', tabBarLabel: 'Charts' }} />
     <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', tabBarLabel: 'Settings' }} />
   </Tabs.Navigator>
