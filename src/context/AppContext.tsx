@@ -23,6 +23,7 @@ import { BackupSettings, ReminderSettings, SmartAlertSettings } from '../types/m
 import { isSupabaseConfigured, supabase } from '../supabase/client';
 import { getCurrentSession } from '../supabase/auth';
 import { syncAll } from '../supabase/sync';
+import { runAutoBackupIfDue } from '../services/backups';
 
 type AppContextValue = {
   initialized: boolean;
@@ -169,6 +170,28 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
 
     return () => sub.remove();
   }, [initialized]);
+
+  useEffect(() => {
+    if (!initialized) return;
+
+    const checkBackup = async () => {
+      const updatedAt = await runAutoBackupIfDue(backupSettings);
+      if (updatedAt) {
+        await saveBackupSettings({ ...backupSettings, lastBackupAt: updatedAt });
+        setBackupSettingsState((prev) => ({ ...prev, lastBackupAt: updatedAt }));
+      }
+    };
+
+    checkBackup();
+
+    const sub = AppState.addEventListener('change', (status) => {
+      if (status === 'active') {
+        checkBackup();
+      }
+    });
+
+    return () => sub.remove();
+  }, [initialized, backupSettings]);
 
   const updateAmountUnit = async (unit: 'ml' | 'oz') => {
     await setAmountUnit(unit);

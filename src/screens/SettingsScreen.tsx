@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { Alert, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
 import { cancelReminder, requestNotificationPermission } from '../services/notifications';
@@ -14,7 +13,7 @@ import { formatDateTime } from '../utils/time';
 import { signOut } from '../supabase/auth';
 import { seedDemoData, clearDemoData } from '../services/seed';
 import { SyncBanner } from '../components/SyncBanner';
-import { runAutoBackupIfDue, runBackupNow } from '../services/backups';
+import { runBackupNow } from '../services/backups';
 
 export const SettingsScreen = () => {
   const {
@@ -63,18 +62,6 @@ export const SettingsScreen = () => {
 
     return presetDateRange(rangePreset);
   }, [rangePreset, customStart, customEnd]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const run = async () => {
-        const updatedAt = await runAutoBackupIfDue(backupSettings);
-        if (updatedAt) {
-          await updateBackupSettings({ ...backupSettings, lastBackupAt: updatedAt });
-        }
-      };
-      run();
-    }, [backupSettings]),
-  );
 
   const applyReminderSettings = async (enabled: boolean) => {
     const nextSettings = {
@@ -358,6 +345,7 @@ export const SettingsScreen = () => {
               onPress={() => setBackupDestination('dropbox')}
             />
           </Row>
+          <Text style={styles.sub}>Google Drive/Dropbox use the iOS Share Sheet destination picker.</Text>
           <Label>Backup interval (days)</Label>
           <Input value={backupIntervalDays} onChangeText={setBackupIntervalDays} keyboardType="number-pad" />
           <Row>
