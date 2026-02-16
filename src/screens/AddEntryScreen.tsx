@@ -1,17 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, SafeAreaView, ScrollView, StyleSheet, Switch, Text } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../app/navigation';
 import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
-import { addFeed } from '../db/feedRepo';
-import { addMeasurement } from '../db/measurementRepo';
-import { addTemperatureLog } from '../db/temperatureRepo';
-import { addDiaperLog } from '../db/diaperRepo';
-import { FeedInput } from '../db/feedRepo';
+import { addFeed, FeedInput, getFeedById, updateFeed } from '../db/feedRepo';
+import { addMeasurement, getMeasurementById, updateMeasurement } from '../db/measurementRepo';
+import { addTemperatureLog, getTemperatureById, updateTemperatureLog } from '../db/temperatureRepo';
+import { addDiaperLog, getDiaperById, updateDiaperLog } from '../db/diaperRepo';
 import { PoopSize } from '../types/models';
-import { displayToKg, displayToMl } from '../utils/units';
+import { displayToKg, displayToMl, kgToDisplay, mlToDisplay } from '../utils/units';
 import { recalculateReminder } from '../services/reminderCoordinator';
 
 type EntryType = 'feed' | 'measurement' | 'temperature' | 'diaper';
@@ -23,6 +22,8 @@ const poopSizes: PoopSize[] = ['small', 'medium', 'large'];
 export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<RootStackParamList, 'AddEntry'>) => {
   const { babyId, amountUnit, weightUnit, reminderSettings, syncNow, bumpDataVersion } = useAppContext();
   const initialType = (route.params?.type as EntryType | undefined) ?? 'feed';
+  const entryId = route.params?.entryId;
+  const isEditing = Boolean(entryId);
 
   const [entryType, setEntryType] = useState<EntryType>(initialType);
   const [timestamp, setTimestamp] = useState(new Date());
@@ -49,20 +50,72 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
 
   const canHaveAmount = useMemo(() => feedType === 'bottle' || feedType === 'formula' || feedType === 'solids', [feedType]);
 
+  useEffect(() => {
+    if (!entryId) return;
+
+    const load = async () => {
+      if (entryType === 'feed') {
+        const feed = await getFeedById(entryId);
+        if (!feed) return;
+        setTimestamp(new Date(feed.timestamp));
+        setFeedType(feed.type);
+        setFeedAmount(feed.amount_ml ? String(mlToDisplay(feed.amount_ml, amountUnit).toFixed(1)) : '');
+        setFeedDuration(feed.duration_minutes ? String(feed.duration_minutes) : '');
+        setFeedSide(feed.side);
+        setFeedNotes(feed.notes ?? '');
+      }
+
+      if (entryType === 'measurement') {
+        const m = await getMeasurementById(entryId);
+        if (!m) return;
+        setTimestamp(new Date(m.timestamp));
+        setWeight(String(kgToDisplay(m.weight_kg, weightUnit).toFixed(2)));
+        setLengthCm(m.length_cm ? String(m.length_cm) : '');
+        setHeadCm(m.head_circumference_cm ? String(m.head_circumference_cm) : '');
+        setMeasurementNotes(m.notes ?? '');
+      }
+
+      if (entryType === 'temperature') {
+        const t = await getTemperatureById(entryId);
+        if (!t) return;
+        setTimestamp(new Date(t.timestamp));
+        setTemperatureC(String(Number(t.temperature_c).toFixed(1)));
+        setTemperatureNotes(t.notes ?? '');
+      }
+
+      if (entryType === 'diaper') {
+        const d = await getDiaperById(entryId);
+        if (!d) return;
+        setTimestamp(new Date(d.timestamp));
+        setHadPee(Boolean(d.had_pee));
+        setHadPoop(Boolean(d.had_poop));
+        setPoopSize((d.poop_size as PoopSize) ?? 'small');
+        setDiaperNotes(d.notes ?? '');
+      }
+    };
+
+    load();
+  }, [entryId, entryType, amountUnit, weightUnit]);
+
   const save = async () => {
     try {
       setBusy(true);
 
       if (entryType === 'feed') {
         const amountMl = canHaveAmount && feedAmount ? displayToMl(Number(feedAmount), amountUnit) : null;
-        await addFeed(babyId, {
+        const payload: FeedInput = {
           timestamp: timestamp.toISOString(),
           type: feedType,
           amount_ml: Number.isFinite(amountMl as number) ? amountMl : null,
           duration_minutes: feedDuration ? Number(feedDuration) : null,
           side: feedSide,
           notes: feedNotes || null,
-        });
+        };
+        if (entryId) {
+          await updateFeed(entryId, payload);
+        } else {
+          await addFeed(babyId, payload);
+        }
         await recalculateReminder(babyId, reminderSettings);
       }
 
@@ -71,13 +124,20 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
         if (!Number.isFinite(parsedWeight)) {
           throw new Error(`Enter a valid weight in ${weightUnit}.`);
         }
-        await addMeasurement(babyId, {
+
+        const payload = {
           timestamp: timestamp.toISOString(),
           weight_kg: displayToKg(parsedWeight, weightUnit),
           length_cm: lengthCm ? Number(lengthCm) : null,
           head_circumference_cm: headCm ? Number(headCm) : null,
           notes: measurementNotes || null,
-        });
+        };
+
+        if (entryId) {
+          await updateMeasurement(entryId, payload);
+        } else {
+          await addMeasurement(babyId, payload);
+        }
       }
 
       if (entryType === 'temperature') {
@@ -85,24 +145,38 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
         if (!Number.isFinite(parsedTemp)) {
           throw new Error('Enter a valid temperature in C.');
         }
-        await addTemperatureLog(babyId, {
+
+        const payload = {
           timestamp: timestamp.toISOString(),
           temperature_c: parsedTemp,
           notes: temperatureNotes || null,
-        });
+        };
+
+        if (entryId) {
+          await updateTemperatureLog(entryId, payload);
+        } else {
+          await addTemperatureLog(babyId, payload);
+        }
       }
 
       if (entryType === 'diaper') {
         if (!hadPee && !hadPoop) {
           throw new Error('Enable pee and/or poop before saving.');
         }
-        await addDiaperLog(babyId, {
+
+        const payload = {
           timestamp: timestamp.toISOString(),
           had_pee: hadPee ? 1 : 0,
           had_poop: hadPoop ? 1 : 0,
           poop_size: hadPoop ? poopSize : null,
           notes: diaperNotes || null,
-        });
+        };
+
+        if (entryId) {
+          await updateDiaperLog(entryId, payload);
+        } else {
+          await addDiaperLog(babyId, payload);
+        }
       }
 
       await syncNow();
@@ -120,11 +194,25 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
       <ScrollView contentContainerStyle={styles.content}>
         <Card title="Entry Type">
           <Row>
-            <SelectPill label="Feed" selected={entryType === 'feed'} onPress={() => setEntryType('feed')} />
-            <SelectPill label="Weight" selected={entryType === 'measurement'} onPress={() => setEntryType('measurement')} />
-            <SelectPill label="Temp" selected={entryType === 'temperature'} onPress={() => setEntryType('temperature')} />
-            <SelectPill label="Poop/Pee" selected={entryType === 'diaper'} onPress={() => setEntryType('diaper')} />
+            <SelectPill label="Feed" selected={entryType === 'feed'} onPress={() => !isEditing && setEntryType('feed')} />
+            <SelectPill
+              label="Weight"
+              selected={entryType === 'measurement'}
+              onPress={() => !isEditing && setEntryType('measurement')}
+            />
+            <SelectPill
+              label="Temp"
+              selected={entryType === 'temperature'}
+              onPress={() => !isEditing && setEntryType('temperature')}
+            />
+            <SelectPill
+              label="Poop/Pee"
+              selected={entryType === 'diaper'}
+              onPress={() => !isEditing && setEntryType('diaper')}
+            />
           </Row>
+
+          {isEditing ? <Text style={styles.hint}>Editing existing entry. Type is locked for data safety.</Text> : null}
 
           <Label>Timestamp</Label>
           <DateTimePicker value={timestamp} mode="datetime" onChange={(_, d) => d && setTimestamp(d)} />
@@ -226,7 +314,7 @@ export const AddEntryScreen = ({ route, navigation }: NativeStackScreenProps<Roo
           </Card>
         ) : null}
 
-        <Button title={busy ? 'Saving...' : 'Save Entry'} onPress={save} />
+        <Button title={busy ? 'Saving...' : isEditing ? 'Update Entry' : 'Save Entry'} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -236,4 +324,5 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f5f7fb' },
   content: { padding: 16, gap: 10 },
   label: { color: '#374151', fontWeight: '500' },
+  hint: { color: '#64748b', fontSize: 12, marginTop: 8 },
 });

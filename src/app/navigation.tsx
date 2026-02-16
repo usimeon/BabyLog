@@ -14,7 +14,12 @@ import { AuthScreen } from '../screens/AuthScreen';
 
 export type RootStackParamList = {
   Main: undefined;
-  AddEntry: { type?: 'feed' | 'measurement' | 'temperature' | 'diaper' } | undefined;
+  AddEntry:
+    | {
+        type?: 'feed' | 'measurement' | 'temperature' | 'diaper';
+        entryId?: string;
+      }
+    | undefined;
   Auth: undefined;
 };
 

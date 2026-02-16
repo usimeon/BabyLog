@@ -134,6 +134,15 @@ npm run ios
 - Poop/Pee tracking (timestamp, pee yes/no, poop yes/no, poop size small/medium/large, notes)
 - Managed from unified `Logs` timeline + `Add Entry` screen
 
+### Logs workspace
+- Single timeline for feed, growth, temperature, and diaper entries
+- Tap any log entry to edit inline in `Add Entry`
+- Long press to delete
+- Includes:
+  - Today-at-a-glance counters
+  - Safety alerts (missed feed interval, high temp, diaper gap)
+  - 6-week activity heatmap
+
 ### Reminders
 - Settings:
   - enabled

@@ -33,6 +33,11 @@ type GlanceStats = {
   entriesToday: number;
 };
 
+type AlertItem = {
+  level: 'warning' | 'critical';
+  message: string;
+};
+
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { babyId, amountUnit, weightUnit, reminderSettings, syncNow, bumpDataVersion, dataVersion } = useAppContext();
@@ -46,6 +51,8 @@ export const LogsScreen = () => {
     latestTempC: '—',
     entriesToday: 0,
   });
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [dailyCounts, setDailyCounts] = useState<Array<{ day: string; count: number }>>([]);
 
   const load = useCallback(async () => {
     const [feeds, measurements, temps, diapers] = await Promise.all([
@@ -99,7 +106,56 @@ export const LogsScreen = () => {
       latestTempC: temps.length ? Number(temps[0].temperature_c).toFixed(1) : '—',
       entriesToday: mapped.filter((x) => new Date(x.timestamp).getTime() >= dayStart).length,
     });
-  }, [babyId, amountUnit, weightUnit]);
+
+    const nextAlerts: AlertItem[] = [];
+    const lastFeed = feeds[0];
+    const latestTemp = temps[0];
+    const lastDiaper = diapers[0];
+
+    if (lastFeed && reminderSettings.enabled) {
+      const hoursSinceFeed = (Date.now() - new Date(lastFeed.timestamp).getTime()) / 36e5;
+      if (hoursSinceFeed >= reminderSettings.intervalHours * 1.5) {
+        nextAlerts.push({
+          level: 'warning',
+          message: `No recent feed for ${hoursSinceFeed.toFixed(1)}h (interval set to ${reminderSettings.intervalHours}h).`,
+        });
+      }
+    }
+
+    if (latestTemp && Number(latestTemp.temperature_c) >= 38) {
+      nextAlerts.push({
+        level: 'critical',
+        message: `Latest logged temperature is ${Number(latestTemp.temperature_c).toFixed(1)} C.`,
+      });
+    }
+
+    if (lastDiaper) {
+      const hoursSinceDiaper = (Date.now() - new Date(lastDiaper.timestamp).getTime()) / 36e5;
+      if (hoursSinceDiaper >= 8) {
+        nextAlerts.push({
+          level: 'warning',
+          message: `No diaper log for ${hoursSinceDiaper.toFixed(1)}h.`,
+        });
+      }
+    }
+
+    setAlerts(nextAlerts);
+
+    const countsMap = new Map<string, number>();
+    for (let i = 41; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      countsMap.set(d.toISOString().slice(0, 10), 0);
+    }
+    mapped.forEach((item) => {
+      const day = item.timestamp.slice(0, 10);
+      if (countsMap.has(day)) {
+        countsMap.set(day, (countsMap.get(day) ?? 0) + 1);
+      }
+    });
+    setDailyCounts(Array.from(countsMap.entries()).map(([day, count]) => ({ day, count })));
+  }, [babyId, amountUnit, weightUnit, reminderSettings.enabled, reminderSettings.intervalHours]);
 
   useFocusEffect(
     useCallback(() => {
@@ -154,6 +210,15 @@ export const LogsScreen = () => {
     }
   };
 
+  const maxDailyCount = useMemo(() => Math.max(...dailyCounts.map((x) => x.count), 1), [dailyCounts]);
+  const heatColor = (count: number) => {
+    if (count <= 0) return '#e5e7eb';
+    const intensity = count / maxDailyCount;
+    if (intensity < 0.34) return '#bfdbfe';
+    if (intensity < 0.67) return '#60a5fa';
+    return '#2563eb';
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <FlatList
@@ -204,6 +269,41 @@ export const LogsScreen = () => {
               </Row>
             </Card>
 
+            <Card title="Alerts">
+              {alerts.length ? (
+                alerts.map((item, idx) => (
+                  <Text
+                    key={`${item.level}-${idx}`}
+                    style={[styles.alertItem, item.level === 'critical' ? styles.alertCritical : styles.alertWarning]}
+                  >
+                    {item.level === 'critical' ? 'Critical: ' : 'Warning: '}
+                    {item.message}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.alertOk}>No active alerts right now.</Text>
+              )}
+            </Card>
+
+            <Card title="Activity Heatmap (Last 6 Weeks)">
+              <View style={styles.heatWrap}>
+                {dailyCounts.map((item) => (
+                  <View
+                    key={item.day}
+                    style={[styles.heatCell, { backgroundColor: heatColor(item.count) }]}
+                  />
+                ))}
+              </View>
+              <Row>
+                <Text style={styles.heatLabel}>Less</Text>
+                <View style={[styles.heatCell, { backgroundColor: '#e5e7eb' }]} />
+                <View style={[styles.heatCell, { backgroundColor: '#bfdbfe' }]} />
+                <View style={[styles.heatCell, { backgroundColor: '#60a5fa' }]} />
+                <View style={[styles.heatCell, { backgroundColor: '#2563eb' }]} />
+                <Text style={styles.heatLabel}>More</Text>
+              </Row>
+            </Card>
+
             <Card title="Filter">
               <Row>
                 {filters.map((option) => (
@@ -221,12 +321,16 @@ export const LogsScreen = () => {
                 placeholder="Search notes, type, details..."
                 style={{ marginTop: 10 }}
               />
-              <Text style={styles.hint}>Long press an entry to delete.</Text>
+              <Text style={styles.hint}>Tap to edit. Long press to delete.</Text>
             </Card>
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onLongPress={() => onDelete(item)}>
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
+            onLongPress={() => onDelete(item)}
+          >
             <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
@@ -259,6 +363,44 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 18, fontWeight: '700', color: '#111827' },
   statLabel: { fontSize: 11, color: '#64748b' },
+  alertItem: {
+    fontSize: 13,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  alertWarning: {
+    backgroundColor: '#fffbeb',
+    color: '#92400e',
+  },
+  alertCritical: {
+    backgroundColor: '#fef2f2',
+    color: '#991b1b',
+  },
+  alertOk: {
+    fontSize: 13,
+    color: '#065f46',
+    backgroundColor: '#ecfdf5',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  heatWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 8,
+  },
+  heatCell: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+  },
+  heatLabel: {
+    fontSize: 11,
+    color: '#64748b',
+  },
   row: {
     backgroundColor: '#fff',
     borderRadius: 12,
