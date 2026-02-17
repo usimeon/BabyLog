@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
@@ -11,7 +11,6 @@ import { BackupDestination, DateRange } from '../types/models';
 import { presetDateRange } from '../utils/dateRange';
 import { formatDateTime } from '../utils/time';
 import { signOut } from '../supabase/auth';
-import { seedDemoData, clearDemoData } from '../services/seed';
 import { SyncBanner } from '../components/SyncBanner';
 import { runBackupNow } from '../services/backups';
 
@@ -36,7 +35,6 @@ export const SettingsScreen = () => {
     syncState,
     syncError,
     lastSyncAt,
-    bumpDataVersion,
   } = useAppContext();
 
   const [intervalHours, setIntervalHours] = useState(String(reminderSettings.intervalHours));
@@ -50,6 +48,8 @@ export const SettingsScreen = () => {
   const [feverThresholdC, setFeverThresholdC] = useState(String(smartAlertSettings.feverThresholdC));
   const [lowFeedsPerDay, setLowFeedsPerDay] = useState(String(smartAlertSettings.lowFeedsPerDay));
   const [backupIntervalDays, setBackupIntervalDays] = useState(String(backupSettings.intervalDays));
+  const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dummyAccounts = [
     { name: 'Ava Johnson', phone: '(415) 555-0148', lastUsed: '2h ago' },
     { name: 'Noah Patel', phone: '(415) 555-0199', lastUsed: 'Yesterday' },
@@ -68,35 +68,54 @@ export const SettingsScreen = () => {
     return presetDateRange(rangePreset);
   }, [rangePreset, customStart, customEnd]);
 
-  const applyReminderSettings = async (enabled: boolean) => {
-    const nextSettings = {
-      enabled,
-      intervalHours: Number(intervalHours) || 3,
-      quietHoursStart: `${String(quietStart.getHours()).padStart(2, '0')}:${String(quietStart.getMinutes()).padStart(2, '0')}`,
-      quietHoursEnd: `${String(quietEnd.getHours()).padStart(2, '0')}:${String(quietEnd.getMinutes()).padStart(2, '0')}`,
-      allowDuringQuietHours: reminderSettings.allowDuringQuietHours,
-    };
+  const showToast = (message: string, kind: 'success' | 'error' | 'info' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ kind, message });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
 
-    if (enabled) {
-      const granted = await requestNotificationPermission();
-      if (!granted) {
-        Alert.alert('Permission required', 'Notification permission is required for reminders.');
+  const applyReminderSettings = async (enabled: boolean) => {
+    try {
+      const nextSettings = {
+        enabled,
+        intervalHours: Number(intervalHours) || 3,
+        quietHoursStart: `${String(quietStart.getHours()).padStart(2, '0')}:${String(quietStart.getMinutes()).padStart(2, '0')}`,
+        quietHoursEnd: `${String(quietEnd.getHours()).padStart(2, '0')}:${String(quietEnd.getMinutes()).padStart(2, '0')}`,
+        allowDuringQuietHours: reminderSettings.allowDuringQuietHours,
+      };
+
+      if (enabled) {
+        const granted = await requestNotificationPermission();
+        if (!granted) {
+          showToast('Notification permission is required for reminders.', 'error');
+          return;
+        }
+        await updateReminderSettings(nextSettings);
+        await recalculateReminder(babyId, nextSettings);
+        showToast('Reminder settings applied.', 'success');
         return;
       }
-      await updateReminderSettings(nextSettings);
-      await recalculateReminder(babyId, nextSettings);
-      return;
-    }
 
-    await cancelReminder();
-    await updateReminderSettings(nextSettings);
+      await cancelReminder();
+      await updateReminderSettings(nextSettings);
+      showToast('Reminders turned off.', 'success');
+    } catch (error: any) {
+      showToast(`Reminder update failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
   };
 
   const toggleQuietHours = async (allow: boolean) => {
-    const next = { ...reminderSettings, allowDuringQuietHours: allow };
-    await updateReminderSettings(next);
-    if (next.enabled) {
-      await recalculateReminder(babyId, next);
+    try {
+      const next = { ...reminderSettings, allowDuringQuietHours: allow };
+      await updateReminderSettings(next);
+      if (next.enabled) {
+        await recalculateReminder(babyId, next);
+      }
+      showToast(`Quiet hours ${allow ? 'allowed' : 'blocked'} for reminders.`, 'success');
+    } catch (error: any) {
+      showToast(`Quiet hours update failed: ${error?.message ?? 'Unknown error'}`, 'error');
     }
   };
 
@@ -107,85 +126,102 @@ export const SettingsScreen = () => {
       } else {
         await exportExcel(dateRange);
       }
+      showToast(`${kind === 'pdf' ? 'PDF' : 'Excel'} export is ready to share.`, 'success');
     } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unknown export error');
+      showToast(`Export failed: ${error?.message ?? 'Unknown export error'}`, 'error');
     }
   };
 
   const onSignOut = async () => {
     try {
       await signOut();
+      showToast('Signed out successfully.', 'success');
     } catch (error: any) {
-      Alert.alert('Sign out failed', error?.message ?? 'Unknown error');
+      showToast(`Sign out failed: ${error?.message ?? 'Unknown error'}`, 'error');
     }
   };
 
   const onInvite = async () => {
-    Alert.alert('Invite sent', 'Invite link shared with caregiver contacts.');
-  };
-
-  const onSeedData = async () => {
-    try {
-      await clearDemoData(babyId);
-      await seedDemoData(babyId);
-      await syncNow();
-      bumpDataVersion();
-      Alert.alert('Demo data added', 'Generated ~6 months of sample tracking data for charts.');
-    } catch (error: any) {
-      Alert.alert('Seed failed', error?.message ?? 'Unknown error');
-    }
-  };
-
-  const onClearData = async () => {
-    try {
-      await clearDemoData(babyId);
-      await syncNow();
-      bumpDataVersion();
-      Alert.alert('Data cleared', 'Feed, growth, temperature, diaper, medication, and milestone records were removed.');
-    } catch (error: any) {
-      Alert.alert('Clear failed', error?.message ?? 'Unknown error');
-    }
+    showToast('Invite link shared with caregiver contacts.', 'success');
   };
 
   const applySmartAlerts = async () => {
-    const next = {
-      ...smartAlertSettings,
-      feedGapHours: Number(feedGapHours) || 4.5,
-      diaperGapHours: Number(diaperGapHours) || 8,
-      feverThresholdC: Number(feverThresholdC) || 38,
-      lowFeedsPerDay: Number(lowFeedsPerDay) || 6,
-    };
-    await updateSmartAlertSettings(next);
-    bumpDataVersion();
+    try {
+      const next = {
+        ...smartAlertSettings,
+        feedGapHours: Number(feedGapHours) || 4.5,
+        diaperGapHours: Number(diaperGapHours) || 8,
+        feverThresholdC: Number(feverThresholdC) || 38,
+        lowFeedsPerDay: Number(lowFeedsPerDay) || 6,
+      };
+      await updateSmartAlertSettings(next);
+      showToast('Smart alert thresholds applied.', 'success');
+    } catch (error: any) {
+      showToast(`Smart alerts update failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
+  };
+
+  const toggleSmartAlerts = async (enabled: boolean) => {
+    try {
+      await updateSmartAlertSettings({ ...smartAlertSettings, enabled });
+      showToast(`Smart alerts ${enabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (error: any) {
+      showToast(`Smart alerts update failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
   };
 
   const setBackupDestination = async (destination: BackupDestination) => {
-    await updateBackupSettings({ ...backupSettings, destination });
+    try {
+      await updateBackupSettings({ ...backupSettings, destination });
+      showToast('Backup destination updated.', 'success');
+    } catch (error: any) {
+      showToast(`Backup destination failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
   };
 
   const toggleAutoBackup = async (enabled: boolean) => {
-    const next = {
-      ...backupSettings,
-      enabled,
-      intervalDays: Number(backupIntervalDays) || 1,
-    };
-    await updateBackupSettings(next);
+    try {
+      const next = {
+        ...backupSettings,
+        enabled,
+        intervalDays: Number(backupIntervalDays) || 1,
+      };
+      await updateBackupSettings(next);
+      showToast(`Auto backup ${enabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (error: any) {
+      showToast(`Auto backup failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
   };
 
   const onRunBackupNow = async () => {
     try {
       const lastBackupAt = await runBackupNow({ ...backupSettings, intervalDays: Number(backupIntervalDays) || 1 });
       await updateBackupSettings({ ...backupSettings, intervalDays: Number(backupIntervalDays) || 1, lastBackupAt });
+      showToast('Backup created and shared successfully.', 'success');
     } catch (error: any) {
-      Alert.alert('Backup failed', error?.message ?? 'Unknown backup error');
+      showToast(`Backup failed: ${error?.message ?? 'Unknown backup error'}`, 'error');
     }
   };
 
   const applyBackupSettings = async () => {
-    await updateBackupSettings({
-      ...backupSettings,
-      intervalDays: Number(backupIntervalDays) || 1,
-    });
+    try {
+      await updateBackupSettings({
+        ...backupSettings,
+        intervalDays: Number(backupIntervalDays) || 1,
+      });
+      showToast('Backup settings applied.', 'success');
+    } catch (error: any) {
+      showToast(`Backup settings failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
+  };
+
+  const onSyncNow = async () => {
+    try {
+      await syncNow();
+      showToast('Cloud sync is running.', 'info');
+    } catch (error: any) {
+      showToast(`Sync failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
   };
 
   return (
@@ -212,6 +248,11 @@ export const SettingsScreen = () => {
           lastSyncAt={lastSyncAt}
           enabled={supabaseEnabled}
         />
+        {toast ? (
+          <View style={[styles.toast, toast.kind === 'error' ? styles.toastError : toast.kind === 'info' ? styles.toastInfo : styles.toastSuccess]}>
+            <Text style={styles.toastText}>{toast.message}</Text>
+          </View>
+        ) : null}
         <Card title="Units">
           <Row>
             <Ionicons name="options-outline" size={16} color="#334155" />
@@ -277,7 +318,7 @@ export const SettingsScreen = () => {
             <Text style={styles.label}>Enable smart alerts</Text>
             <Switch
               value={smartAlertSettings.enabled}
-              onValueChange={(enabled) => updateSmartAlertSettings({ ...smartAlertSettings, enabled })}
+              onValueChange={toggleSmartAlerts}
             />
           </Row>
           <Label>Feed gap warning (hours)</Label>
@@ -377,18 +418,6 @@ export const SettingsScreen = () => {
           </View>
         </Card>
 
-        <Card title="QA Tools">
-          <Row>
-            <Ionicons name="construct-outline" size={16} color="#334155" />
-            <Text style={styles.sectionSub}>Testing helpers</Text>
-          </Row>
-          <Text style={styles.sub}>Use sample data to validate reminders, charts, medications, milestones, and exports quickly.</Text>
-          <View style={styles.buttonGroup}>
-            <Button title="Seed Demo Data" onPress={onSeedData} />
-            <Button title="Clear Local Tracking Data" variant="danger" onPress={onClearData} />
-          </View>
-        </Card>
-
         <Card title="Account">
           <Row>
             <Ionicons name="person-circle-outline" size={16} color="#334155" />
@@ -418,7 +447,7 @@ export const SettingsScreen = () => {
             Signed in: <Text style={styles.signedInEmail}>{session ? session.user.email : 'Not signed in'}</Text>
           </Text>
           <View style={styles.buttonGroup}>
-            <Button title="Sync Now" onPress={syncNow} />
+            <Button title="Sync Now" onPress={onSyncNow} />
             {session ? <Button title="Sign Out" variant="danger" onPress={onSignOut} /> : null}
           </View>
         </Card>
@@ -474,4 +503,15 @@ const styles = StyleSheet.create({
   sectionSpacer: { height: 16 },
   signedInLine: { color: '#4b5563', fontSize: 13, marginBottom: 2 },
   signedInEmail: { color: '#111827', fontSize: 13, fontWeight: '700' },
+  toast: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  toastText: { fontSize: 12, color: '#1f2937' },
+  toastSuccess: { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0' },
+  toastError: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
+  toastInfo: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' },
 });
