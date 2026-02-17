@@ -30,7 +30,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSUserNotificationUsageDescription: 'BabyLog uses reminders to notify you when the next feed is due.',
     },
   },
-  plugins: ['expo-sqlite', '@react-native-community/datetimepicker', 'expo-secure-store', 'expo-web-browser'],
+  plugins: [
+    'expo-sqlite',
+    '@react-native-community/datetimepicker',
+    'expo-secure-store',
+    'expo-web-browser',
+  ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabasePublishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,

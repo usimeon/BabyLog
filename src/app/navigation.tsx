@@ -11,7 +11,6 @@ import { LogsScreen } from '../screens/LogsScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
-import { VoiceQuickEntryScreen } from '../screens/VoiceQuickEntryScreen';
 
 export type RootStackParamList = {
   Main: undefined;
@@ -23,7 +22,6 @@ export type RootStackParamList = {
         entryId?: string;
       }
     | undefined;
-  VoiceQuickEntry: undefined;
   Auth: undefined;
 };
 
@@ -240,7 +238,6 @@ export const AppNavigation = () => {
             <Stack.Screen name="Charts" component={ChartsScreen} options={{ title: 'Charts' }} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Profile' }} />
             <Stack.Screen name="AddEntry" component={AddEntryScreen} options={{ title: 'Add Entry' }} />
-            <Stack.Screen name="VoiceQuickEntry" component={VoiceQuickEntryScreen} options={{ title: 'Voice Quick Entry' }} />
           </>
         )}
       </Stack.Navigator>

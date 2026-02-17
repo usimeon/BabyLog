@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../components/ui';
 import { calculateFeedSummary } from '../db/feedRepo';
 import { useAppContext } from '../context/AppContext';
@@ -56,10 +55,6 @@ export const TodayScreen = () => {
           <Text style={styles.heroSubtitle}>Log feed, growth, temperature, diaper, meds, or milestones.</Text>
           <Pressable style={styles.logButton} onPress={() => navigation.navigate('AddEntry')}>
             <Text style={styles.logButtonText}>Log</Text>
-          </Pressable>
-          <Pressable style={styles.voiceButton} onPress={() => navigation.navigate('VoiceQuickEntry')}>
-            <Ionicons name="mic" size={16} color="#1f2937" />
-            <Text style={styles.voiceButtonText}>Voice Quick Entry</Text>
           </Pressable>
         </View>
 
@@ -119,21 +114,6 @@ const styles = StyleSheet.create({
   },
   logButtonText: {
     color: '#ffffff',
-    fontWeight: '600',
-  },
-  voiceButton: {
-    marginTop: 8,
-    backgroundColor: '#FFE194',
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  voiceButtonText: {
-    color: '#1f2937',
     fontWeight: '600',
   },
   valueLabel: { color: '#6b7280', fontSize: 13, marginTop: 8 },

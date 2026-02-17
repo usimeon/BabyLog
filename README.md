@@ -193,7 +193,6 @@ npm run ios
 
 ### Voice quick entry
 - `Today -> Voice Quick Entry` parses dictated text into structured entries
-- Includes in-app microphone speech-to-text (start/stop listening) for hands-free logging
 
 ### Routine suggestions
 - `Today` includes simple personalized routine suggestions from recent trends (feeds, diapers, temps, meds)
