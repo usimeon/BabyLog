@@ -18,6 +18,16 @@ const DROPBOX_TOKEN_KEY = 'backup_dropbox_token';
 
 const googleClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID ?? '').trim();
 const dropboxClientId = (process.env.EXPO_PUBLIC_DROPBOX_APP_KEY ?? '').trim();
+const oauthRedirectScheme = (process.env.EXPO_PUBLIC_OAUTH_REDIRECT_SCHEME ?? 'com.example.babylog').trim();
+const googleClientSuffix = '.apps.googleusercontent.com';
+
+const getGoogleRedirectUri = () => {
+  if (!googleClientId || !googleClientId.endsWith(googleClientSuffix)) return null;
+  const appId = googleClientId.slice(0, -googleClientSuffix.length);
+  return `com.googleusercontent.apps.${appId}:/oauth2redirect`;
+};
+
+const getDropboxRedirectUri = () => `${oauthRedirectScheme}://oauth2redirect`;
 
 const tokenKey = (provider: Provider) => (provider === 'google_drive' ? GOOGLE_TOKEN_KEY : DROPBOX_TOKEN_KEY);
 
@@ -47,10 +57,10 @@ export const getCloudProviderConnected = async (provider: Provider) => {
 };
 
 const makeAuthRequest = async (provider: Provider) => {
-  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'babylog' });
-
   if (provider === 'google_drive') {
+    const redirectUri = getGoogleRedirectUri();
     if (!googleClientId) throw new Error('Missing EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID');
+    if (!redirectUri) throw new Error('Invalid Google client ID format.');
 
     const request = new AuthSession.AuthRequest({
       clientId: googleClientId,
@@ -106,6 +116,7 @@ const makeAuthRequest = async (provider: Provider) => {
   }
 
   if (!dropboxClientId) throw new Error('Missing EXPO_PUBLIC_DROPBOX_APP_KEY');
+  const redirectUri = getDropboxRedirectUri();
 
   const request = new AuthSession.AuthRequest({
     clientId: dropboxClientId,

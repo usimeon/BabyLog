@@ -60,6 +60,7 @@ EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID=YOUR_GOOGLE_DRIVE_OAUTH_CLIENT_ID
 EXPO_PUBLIC_DROPBOX_APP_KEY=YOUR_DROPBOX_APP_KEY
+EXPO_PUBLIC_OAUTH_REDIRECT_SCHEME=com.example.babylog
 ```
 
 Legacy fallback also supported:
@@ -251,10 +252,13 @@ Excel sheets:
   - temperature: `F`
 
 ## Google Drive / Dropbox setup
-- Add iOS redirect URI support using app scheme `babylog` (already configured in app config).
 - Configure OAuth apps in provider consoles:
-  - Google OAuth client: add redirect URI from `AuthSession.makeRedirectUri({ scheme: 'babylog' })`
-  - Dropbox app: add same redirect URI in OAuth redirect list
+  - Google: create an `iOS` OAuth client (not Web), bundle id `com.example.babylog`, and use that client id as `EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID`.
+  - Google callback is derived from the client id and looks like `com.googleusercontent.apps.<CLIENT_ID_PREFIX>:/oauth2redirect`.
+  - Dropbox: add redirect URI `com.example.babylog://oauth2redirect` in Dropbox OAuth redirect list.
+- Google OAuth consent screen:
+  - set publishing status to `Testing`
+  - add your Gmail account to `Test users`
 - In app:
   - `Settings -> Auto Backup`
   - Choose destination
