@@ -4,7 +4,7 @@ import { BarChart } from '../../components/BarChart';
 import { LineChart } from '../../components/LineChart';
 import { Button, Card, Row, SelectPill } from '../../components/ui';
 import { useAppContext } from '../../context/AppContext';
-import { dailyFeedTotals, individualFeedAmounts, intervalTrend, monthlyFeedTotals } from '../../db/feedRepo';
+import { dailyFeedTotals, individualFeedAmounts, monthlyFeedTotals } from '../../db/feedRepo';
 import { exportChartImage } from '../../services/exports';
 import { presetDateRange } from '../../utils/dateRange';
 import { CaptureChart } from '../../components/CaptureChart';
@@ -20,7 +20,6 @@ export const FeedChartsTab = () => {
   const [days, setDays] = useState<7 | 30>(7);
   const [months, setMonths] = useState<3 | 6 | 12>(6);
   const [series, setSeries] = useState<Array<{ x: string; y: number }>>([]);
-  const [intervalData, setIntervalData] = useState<Array<{ x: string; y: number }>>([]);
 
   const load = async () => {
     let nextSeries: Array<{ x: string; y: number }> = [];
@@ -41,10 +40,6 @@ export const FeedChartsTab = () => {
     }
 
     setSeries(nextSeries);
-
-    const intervalDays = viewMode === 'monthly' ? months * 30 : days;
-    const intervals = await intervalTrend(babyId, intervalDays);
-    setIntervalData(intervals.map((point) => ({ x: point.x, y: point.hours })));
   };
 
   useEffect(() => {
@@ -117,10 +112,6 @@ export const FeedChartsTab = () => {
             <Text style={styles.meta}>Average across points: {summary.average.toFixed(1)} {amountUnit}</Text>
           )}
           {chartKind === 'bar' ? <BarChart data={series} /> : <LineChart data={series} color="#0ea5e9" />}
-        </Card>
-
-        <Card title="Interval trend (hours)">
-          <LineChart data={intervalData} color="#f59e0b" />
         </Card>
       </CaptureChart>
 

@@ -9,13 +9,16 @@ type Props = {
   width?: number;
   height?: number;
   color?: string;
+  yMax?: number;
+  yUnitLabel?: string;
+  xAxisLabel?: string;
 };
 
-export const BarChart = ({ data, width = 340, height = 220, color = '#30a46c' }: Props) => {
+export const BarChart = ({ data, width = 340, height = 220, color = '#30a46c', yMax, yUnitLabel, xAxisLabel }: Props) => {
   if (!data.length) return <View style={{ height }} />;
 
   const padding = 24;
-  const maxY = Math.max(...data.map((d) => d.y), 1);
+  const maxYValue = yMax ?? Math.max(...data.map((d) => d.y), 1);
   const barAreaWidth = width - padding * 2;
   const slot = barAreaWidth / data.length;
   const barWidth = Math.max(6, slot * 0.6);
@@ -33,7 +36,7 @@ export const BarChart = ({ data, width = 340, height = 220, color = '#30a46c' }:
       />
 
       {data.map((point, index) => {
-        const h = (point.y / maxY) * (height - padding * 2);
+        const h = (point.y / maxYValue) * (height - padding * 2);
         const x = padding + slot * index + (slot - barWidth) / 2;
         const y = height - padding - h;
         const label = point.x.slice(5);
@@ -51,8 +54,13 @@ export const BarChart = ({ data, width = 340, height = 220, color = '#30a46c' }:
       })}
 
       <SvgText x={6} y={padding} fontSize={10} fill="#666">
-        {maxY.toFixed(0)}
+        {`${maxYValue.toFixed(0)}${yUnitLabel ? ` ${yUnitLabel}` : ''}`}
       </SvgText>
+      {xAxisLabel ? (
+        <SvgText x={width / 2 - 24} y={height - 4} fontSize={10} fill="#666">
+          {xAxisLabel}
+        </SvgText>
+      ) : null}
     </Svg>
   );
 };

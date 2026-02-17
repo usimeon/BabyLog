@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
-import { LineChart } from '../../components/LineChart';
+import { WeightForAgeChart } from '../../components/WeightForAgeChart';
 import { Button, Card } from '../../components/ui';
 import { useAppContext } from '../../context/AppContext';
 import { listMeasurements } from '../../db/measurementRepo';
+import { getBabyById } from '../../db/babyRepo';
 import { exportChartImage } from '../../services/exports';
 import { presetDateRange } from '../../utils/dateRange';
 import { CaptureChart } from '../../components/CaptureChart';
@@ -12,14 +13,21 @@ import { estimateWeightPercentile, percentileBandForMonth } from '../../utils/gr
 
 export const WeightChartsTab = () => {
   const { babyId, weightUnit, dataVersion } = useAppContext();
-  const [points, setPoints] = useState<Array<{ x: string; y: number }>>([]);
-  const [pointsKg, setPointsKg] = useState<Array<{ x: string; y: number }>>([]);
+  const [observations, setObservations] = useState<Array<{ x: number; y: number; yKg: number }>>([]);
 
   const load = async () => {
-    const rows = await listMeasurements(babyId);
+    const [rows, baby] = await Promise.all([listMeasurements(babyId), getBabyById(babyId)]);
     const ordered = [...rows].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    setPoints(ordered.map((x) => ({ x: x.timestamp, y: kgToDisplay(x.weight_kg, weightUnit) })));
-    setPointsKg(ordered.map((x) => ({ x: x.timestamp, y: x.weight_kg })));
+    if (!ordered.length) {
+      setObservations([]);
+      return;
+    }
+    const baseMs = baby?.birthdate ? new Date(baby.birthdate).getTime() : new Date(ordered[0].timestamp).getTime();
+    const next = ordered.map((row) => {
+      const ageMonths = Math.max(0, (new Date(row.timestamp).getTime() - baseMs) / (30.44 * 24 * 60 * 60 * 1000));
+      return { x: ageMonths, y: kgToDisplay(row.weight_kg, weightUnit), yKg: row.weight_kg };
+    });
+    setObservations(next);
   };
 
   useEffect(() => {
@@ -35,38 +43,39 @@ export const WeightChartsTab = () => {
   };
 
   const percentileOverlay = useMemo(() => {
-    if (!pointsKg.length) return null;
-    const firstTs = new Date(pointsKg[0].x).getTime();
-    const withMonth = pointsKg.map((point) => ({
-      x: point.x,
-      month: Math.max(0, (new Date(point.x).getTime() - firstTs) / (30.44 * 24 * 60 * 60 * 1000)),
-      yKg: point.y,
-    }));
-    const p10 = withMonth.map((p) => ({ x: p.x, y: kgToDisplay(percentileBandForMonth(p.month).p10, weightUnit) }));
-    const p50 = withMonth.map((p) => ({ x: p.x, y: kgToDisplay(percentileBandForMonth(p.month).p50, weightUnit) }));
-    const p90 = withMonth.map((p) => ({ x: p.x, y: kgToDisplay(percentileBandForMonth(p.month).p90, weightUnit) }));
-
-    const latest = withMonth[withMonth.length - 1];
-    const latestPercentile = estimateWeightPercentile(latest.month, latest.yKg);
-    return { p10, p50, p90, latestPercentile };
-  }, [pointsKg, weightUnit]);
+    if (!observations.length) return null;
+    const latestMonth = observations[observations.length - 1].x;
+    const xMax = Math.max(24, Math.ceil(latestMonth / 2) * 2);
+    const months = Array.from({ length: xMax + 1 }, (_, month) => month);
+    const p10 = months.map((month) => ({ x: month, y: kgToDisplay(percentileBandForMonth(month).p10, weightUnit) }));
+    const p50 = months.map((month) => ({ x: month, y: kgToDisplay(percentileBandForMonth(month).p50, weightUnit) }));
+    const p90 = months.map((month) => ({ x: month, y: kgToDisplay(percentileBandForMonth(month).p90, weightUnit) }));
+    const latest = observations[observations.length - 1];
+    const latestPercentile = estimateWeightPercentile(latest.x, latest.yKg);
+    return { p10, p50, p90, latestPercentile, xMax };
+  }, [observations, weightUnit]);
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <CaptureChart chartId="weight">
-        <Card title={`Weight over time (${weightUnit})`}>
+        <Card title={`Weight-for-age (${weightUnit})`}>
           {percentileOverlay ? (
-            <Text style={styles.meta}>Estimated latest percentile: ~P{percentileOverlay.latestPercentile}</Text>
+            <Text style={styles.meta}>
+              Estimated latest percentile: ~P{percentileOverlay.latestPercentile} (reference P10-P90 band)
+            </Text>
           ) : null}
-          <LineChart data={points} color="#a855f7" />
           {percentileOverlay ? (
-            <>
-              <Text style={styles.meta}>Reference overlay</Text>
-              <LineChart data={percentileOverlay.p10} color="#93c5fd" />
-              <LineChart data={percentileOverlay.p50} color="#60a5fa" />
-              <LineChart data={percentileOverlay.p90} color="#F77575" />
-            </>
-          ) : null}
+            <WeightForAgeChart
+              observations={observations.map((point) => ({ x: point.x, y: point.y }))}
+              p10={percentileOverlay.p10}
+              p50={percentileOverlay.p50}
+              p90={percentileOverlay.p90}
+              xMax={percentileOverlay.xMax}
+              yUnitLabel={weightUnit}
+            />
+          ) : (
+            <Text style={styles.emptyText}>Add at least one growth entry to see the chart.</Text>
+          )}
         </Card>
       </CaptureChart>
 
@@ -78,4 +87,5 @@ export const WeightChartsTab = () => {
 const styles = StyleSheet.create({
   content: { padding: 16, backgroundColor: '#f5f7fb', gap: 10 },
   meta: { color: '#475569', fontSize: 12, marginBottom: 6 },
+  emptyText: { color: '#64748b', fontSize: 13 },
 });

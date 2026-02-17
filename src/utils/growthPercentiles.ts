@@ -5,7 +5,7 @@ type PercentilePoint = {
   p90: number;
 };
 
-// Simplified WHO-style reference points (kg) for 0-24 months.
+// Simplified reference points (kg) for 0-36 months.
 const REFERENCE: PercentilePoint[] = [
   { month: 0, p10: 2.8, p50: 3.3, p90: 4.2 },
   { month: 1, p10: 3.5, p50: 4.2, p90: 5.4 },
@@ -17,6 +17,8 @@ const REFERENCE: PercentilePoint[] = [
   { month: 12, p10: 7.5, p50: 9.3, p90: 11.2 },
   { month: 18, p10: 8.6, p50: 10.9, p90: 13.1 },
   { month: 24, p10: 9.6, p50: 12.2, p90: 14.6 },
+  { month: 30, p10: 10.6, p50: 13.5, p90: 16.1 },
+  { month: 36, p10: 11.6, p50: 14.8, p90: 17.7 },
 ];
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

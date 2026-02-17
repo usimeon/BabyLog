@@ -60,3 +60,7 @@ export const upsertBaby = async (baby: BabyProfile, markDirty = false) => {
     ],
   );
 };
+
+export const getBabyById = async (id: string) => {
+  return getOne<BabyProfile>('SELECT * FROM babies WHERE id = ? LIMIT 1;', [id]);
+};
