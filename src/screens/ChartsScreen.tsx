@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { BarChart } from '../components/BarChart';
 import { CaptureChart } from '../components/CaptureChart';
 import { LineChart } from '../components/LineChart';
 import { WeightForAgeChart } from '../components/WeightForAgeChart';
-import { Button, Card, Row, SelectPill } from '../components/ui';
+import { Card, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
 import { getBabyById } from '../db/babyRepo';
 import { dailyFeedTotals, individualFeedAmounts, monthlyFeedTotals } from '../db/feedRepo';
 import { listMeasurements } from '../db/measurementRepo';
 import { listTemperatureLogs } from '../db/temperatureRepo';
-import { exportChartImage } from '../services/exports';
-import { presetDateRange } from '../utils/dateRange';
 import { estimateWeightPercentile, percentileBandForMonth } from '../utils/growthPercentiles';
 import { cToDisplay, kgToDisplay, mlToDisplay } from '../utils/units';
 
@@ -150,31 +148,6 @@ export const ChartsScreen = () => {
 
   const peakTemp = useMemo(() => (tempSeries.length ? Math.max(...tempSeries.map((x) => x.y)) : 0), [tempSeries]);
 
-  const onExportFeeds = async () => {
-    try {
-      const range = feedViewMode === 'monthly' ? presetDateRange('30d') : presetDateRange(feedDays === 7 ? '7d' : '30d');
-      await exportChartImage('feeds', range);
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
-
-  const onExportWeight = async () => {
-    try {
-      await exportChartImage('weight', presetDateRange('30d'));
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
-
-  const onExportCare = async () => {
-    try {
-      await exportChartImage('care', presetDateRange(careDays === 7 ? '7d' : '30d'));
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
-
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Card title="Feeds">
@@ -228,7 +201,6 @@ export const ChartsScreen = () => {
           )}
         </Card>
       </CaptureChart>
-      <Button title="Export Feed Chart (PNG)" onPress={onExportFeeds} />
 
       <CaptureChart chartId="weight">
         <Card title={`Weight-for-age (${weightUnit})`}>
@@ -251,7 +223,6 @@ export const ChartsScreen = () => {
           ) : null}
         </Card>
       </CaptureChart>
-      <Button title="Export Weight Chart (PNG)" onPress={onExportWeight} />
 
       <Card title="Care">
         <Text style={styles.title}>Temperature range</Text>
@@ -267,7 +238,6 @@ export const ChartsScreen = () => {
           <LineChart data={tempSeries} color="#ef4444" yUnitLabel={tempUnit.toUpperCase()} xAxisLabel="Time" />
         </Card>
       </CaptureChart>
-      <Button title="Export Care Chart (PNG)" onPress={onExportCare} />
     </ScrollView>
   );
 };

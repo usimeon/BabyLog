@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { LineChart } from '../../components/LineChart';
-import { Button, Card, Row, SelectPill } from '../../components/ui';
+import { Card, Row, SelectPill } from '../../components/ui';
 import { useAppContext } from '../../context/AppContext';
 import { listTemperatureLogs } from '../../db/temperatureRepo';
-import { exportChartImage } from '../../services/exports';
-import { presetDateRange } from '../../utils/dateRange';
 import { cToDisplay } from '../../utils/units';
 import { CaptureChart } from '../../components/CaptureChart';
 
@@ -43,14 +41,6 @@ export const CareChartsTab = () => {
     return { maxTemp };
   }, [tempSeries]);
 
-  const onExportImage = async () => {
-    try {
-      await exportChartImage('care', presetDateRange(days === 7 ? '7d' : '30d'));
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
-
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Card>
@@ -67,8 +57,6 @@ export const CareChartsTab = () => {
           <LineChart data={tempSeries} color="#ef4444" />
         </Card>
       </CaptureChart>
-
-      <Button title="Export Care Charts (PNG)" onPress={onExportImage} />
     </ScrollView>
   );
 };

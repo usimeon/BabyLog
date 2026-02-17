@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { BarChart } from '../../components/BarChart';
 import { LineChart } from '../../components/LineChart';
 import { Button, Card, Row, SelectPill } from '../../components/ui';
 import { useAppContext } from '../../context/AppContext';
 import { dailyFeedTotals, individualFeedAmounts, monthlyFeedTotals } from '../../db/feedRepo';
-import { exportChartImage } from '../../services/exports';
-import { presetDateRange } from '../../utils/dateRange';
 import { CaptureChart } from '../../components/CaptureChart';
 import { mlToDisplay } from '../../utils/units';
 
@@ -45,15 +43,6 @@ export const FeedChartsTab = () => {
   useEffect(() => {
     load();
   }, [babyId, amountUnit, dataVersion, viewMode, chartKind, days, months]);
-
-  const onExportImage = async () => {
-    try {
-      const range = viewMode === 'monthly' ? presetDateRange('30d') : presetDateRange(days === 7 ? '7d' : '30d');
-      await exportChartImage('feeds', range);
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
 
   const chartTitle = useMemo(() => {
     if (viewMode === 'individual') return `Individual feed amounts (${amountUnit})`;
@@ -114,8 +103,6 @@ export const FeedChartsTab = () => {
           {chartKind === 'bar' ? <BarChart data={series} /> : <LineChart data={series} color="#0ea5e9" />}
         </Card>
       </CaptureChart>
-
-      <Button title="Export Feed Chart (PNG)" onPress={onExportImage} />
     </ScrollView>
   );
 };

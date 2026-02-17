@@ -6,9 +6,7 @@ import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
 import { cancelReminder, requestNotificationPermission } from '../services/notifications';
 import { recalculateReminder } from '../services/reminderCoordinator';
-import { exportExcel, exportPdf } from '../services/exports';
-import { BackupDestination, DateRange } from '../types/models';
-import { presetDateRange } from '../utils/dateRange';
+import { BackupDestination } from '../types/models';
 import { formatDateTime } from '../utils/time';
 import { signOut } from '../supabase/auth';
 import { SyncBanner } from '../components/SyncBanner';
@@ -41,9 +39,6 @@ export const SettingsScreen = () => {
   const [intervalHours, setIntervalHours] = useState(String(reminderSettings.intervalHours));
   const [quietStart, setQuietStart] = useState<Date>(new Date());
   const [quietEnd, setQuietEnd] = useState<Date>(new Date());
-  const [rangePreset, setRangePreset] = useState<'7d' | '30d' | 'custom'>('7d');
-  const [customStart, setCustomStart] = useState(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
-  const [customEnd, setCustomEnd] = useState(new Date());
   const [feedGapHours, setFeedGapHours] = useState(String(smartAlertSettings.feedGapHours));
   const [diaperGapHours, setDiaperGapHours] = useState(String(smartAlertSettings.diaperGapHours));
   const [feverThresholdC, setFeverThresholdC] = useState(String(smartAlertSettings.feverThresholdC));
@@ -59,18 +54,6 @@ export const SettingsScreen = () => {
     { name: 'Noah Patel', phone: '(415) 555-0199', lastUsed: 'Yesterday' },
     { name: 'Mia Chen', phone: '(415) 555-0112', lastUsed: '3d ago' },
   ];
-
-  const dateRange: DateRange = useMemo(() => {
-    if (rangePreset === 'custom') {
-      return {
-        start: customStart,
-        end: customEnd,
-        label: 'Custom',
-      };
-    }
-
-    return presetDateRange(rangePreset);
-  }, [rangePreset, customStart, customEnd]);
 
   React.useEffect(() => {
     const loadConnections = async () => {
@@ -134,19 +117,6 @@ export const SettingsScreen = () => {
       showToast(`Quiet hours ${allow ? 'allowed' : 'blocked'} for reminders.`, 'success');
     } catch (error: any) {
       showToast(`Quiet hours update failed: ${error?.message ?? 'Unknown error'}`, 'error');
-    }
-  };
-
-  const runExport = async (kind: 'pdf' | 'excel') => {
-    try {
-      if (kind === 'pdf') {
-        await exportPdf(dateRange);
-      } else {
-        await exportExcel(dateRange);
-      }
-      showToast(`${kind === 'pdf' ? 'PDF' : 'Excel'} export is ready to share.`, 'success');
-    } catch (error: any) {
-      showToast(`Export failed: ${error?.message ?? 'Unknown export error'}`, 'error');
     }
   };
 
@@ -379,35 +349,6 @@ export const SettingsScreen = () => {
           </View>
         </Card>
 
-        <Card title="Export">
-          <Row>
-            <Ionicons name="share-social-outline" size={16} color="#334155" />
-            <Text style={styles.sectionSub}>Share files for selected range</Text>
-          </Row>
-          <Label>Date range</Label>
-          <Row>
-            <SelectPill label="Last 7" selected={rangePreset === '7d'} onPress={() => setRangePreset('7d')} />
-            <SelectPill label="Last 30" selected={rangePreset === '30d'} onPress={() => setRangePreset('30d')} />
-            <SelectPill label="Custom" selected={rangePreset === 'custom'} onPress={() => setRangePreset('custom')} />
-          </Row>
-
-          {rangePreset === 'custom' ? (
-            <>
-              <Label>Start</Label>
-              <DateTimePicker value={customStart} mode="date" onChange={(_, d) => d && setCustomStart(d)} />
-              <Label>End</Label>
-              <DateTimePicker value={customEnd} mode="date" onChange={(_, d) => d && setCustomEnd(d)} />
-            </>
-          ) : null}
-
-          <Text style={styles.sub}>Range: {formatDateTime(dateRange.start.toISOString())} - {formatDateTime(dateRange.end.toISOString())}</Text>
-
-          <View style={styles.buttonGroup}>
-            <Button title="Export PDF" onPress={() => runExport('pdf')} />
-            <Button title="Export Excel (.xlsx)" onPress={() => runExport('excel')} variant="secondary" />
-          </View>
-        </Card>
-
         <Card title="Auto Backup">
           <Row>
             <Ionicons name="cloud-upload-outline" size={16} color="#334155" />
@@ -426,14 +367,6 @@ export const SettingsScreen = () => {
           <Text style={styles.sub}>Google Drive: {driveConnected ? 'Connected' : 'Not connected'} | Dropbox: {dropboxConnected ? 'Connected' : 'Not connected'}</Text>
           <Label>Backup interval (days)</Label>
           <Input value={backupIntervalDays} onChangeText={setBackupIntervalDays} keyboardType="number-pad" />
-          <Row>
-            <Text style={styles.label}>Include PDF</Text>
-            <Switch value={backupSettings.includePdf} onValueChange={(includePdf) => updateBackupSettings({ ...backupSettings, includePdf })} />
-          </Row>
-          <Row>
-            <Text style={styles.label}>Include Excel</Text>
-            <Switch value={backupSettings.includeExcel} onValueChange={(includeExcel) => updateBackupSettings({ ...backupSettings, includeExcel })} />
-          </Row>
           <Text style={styles.sub}>Last backup: {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}</Text>
           <View style={styles.buttonGroup}>
             <Button title="Connect Selected Provider" variant="secondary" onPress={connectSelectedProvider} />

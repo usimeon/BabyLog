@@ -121,8 +121,6 @@ export interface BackupSettings {
   enabled: boolean;
   destination: BackupDestination;
   intervalDays: number;
-  includePdf: boolean;
-  includeExcel: boolean;
   lastBackupAt?: string | null;
 }
 

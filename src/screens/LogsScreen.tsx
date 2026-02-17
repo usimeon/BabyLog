@@ -14,8 +14,6 @@ import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { getMedicationSpacingAlert, listMedicationLogs, softDeleteMedicationLog } from '../db/medicationRepo';
 import { listMilestones, softDeleteMilestone } from '../db/milestoneRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
-import { exportExcel, exportPdf, ExportKind } from '../services/exports';
-import { DateRange } from '../types/models';
 import { formatDateTime, startOfDay } from '../utils/time';
 import { cToDisplay, formatAmount, formatTemp, formatWeight } from '../utils/units';
 
@@ -312,45 +310,6 @@ export const LogsScreen = () => {
     await setPinnedLogs(next);
   };
 
-  const currentDateRange = useMemo<DateRange | null>(() => {
-    if (!visible.length) return null;
-    const end = new Date();
-    let start = startOfDay(end);
-    if (rangePreset === '7d') start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-    if (rangePreset === '30d') start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    if (rangePreset === 'all') {
-      const oldest = visible[visible.length - 1];
-      start = new Date(oldest.timestamp);
-    }
-    return { start, end, label: 'Logs Export' };
-  }, [visible, rangePreset]);
-
-  const exportKinds = useMemo<ExportKind[] | undefined>(() => {
-    if (filter === 'feed') return ['feed'];
-    if (filter === 'measurement') return ['measurement'];
-    if (filter === 'temperature') return ['temperature'];
-    if (filter === 'diaper') return ['diaper'];
-    if (filter === 'medication') return ['medication'];
-    if (filter === 'milestone') return ['milestone'];
-    return undefined;
-  }, [filter]);
-
-  const onExportFiltered = async (kind: 'pdf' | 'excel') => {
-    if (!currentDateRange) {
-      Alert.alert('No data', 'Nothing to export for this filter/range.');
-      return;
-    }
-    try {
-      if (kind === 'pdf') {
-        await exportPdf(currentDateRange, { kinds: exportKinds });
-      } else {
-        await exportExcel(currentDateRange, { kinds: exportKinds });
-      }
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unknown error');
-    }
-  };
-
   return (
     <SafeAreaView style={styles.safe}>
       <FlatList
@@ -454,14 +413,6 @@ export const LogsScreen = () => {
                 style={{ marginTop: 10 }}
               />
               <Text style={styles.hint}>Tap to edit. Long press to delete.</Text>
-            </Card>
-
-            <Card title="Export Filtered View">
-              <Text style={styles.hint}>Exports current range and type filter.</Text>
-              <Row>
-                <Button title="PDF" onPress={() => onExportFiltered('pdf')} />
-                <Button title="Excel" variant="secondary" onPress={() => onExportFiltered('excel')} />
-              </Row>
             </Card>
 
             <Card title="Filtered Snapshot">

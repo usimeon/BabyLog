@@ -6,16 +6,13 @@ BabyLog is an iOS-focused baby tracking app with:
 - Feed and measurement logging
 - Reminder notifications
 - Charts
-- Export to PNG/PDF/XLSX
 
 ## Stack
 - Expo SDK 54
 - React Native + TypeScript
 - `expo-sqlite`
 - `expo-notifications`
-- `expo-print`
 - `expo-file-system`
-- `expo-sharing`
 - `react-native-svg`
 - Supabase (`@supabase/supabase-js`)
 
@@ -176,7 +173,6 @@ npm run ios
 - Tap any log entry to edit inline in `Add Entry`
 - Long press to delete
 - Star icon to pin/unpin important entries, with `pinned` filter
-- Export filtered/ranged Logs view directly to PDF or Excel
 - Includes:
   - Today-at-a-glance counters
   - Smart safety alerts (feed gap, high temp, diaper gap, low feeds/day, medication spacing)
@@ -194,29 +190,10 @@ npm run ios
 - Feed chart for last 7/30 days totals + interval trend
 - Weight chart over time with percentile reference overlay (P10/P50/P90) and latest percentile estimate
 - Care chart tab with temperature trend, diaper/day bars, and medication/day bars
-- Chart export to PNG using view capture
-
-### Exports
-- `exportChartImage(chartId, dateRange)`
-- `exportPdf(dateRange)`
-- `exportExcel(dateRange)`
-- `Settings -> Auto Backup` supports scheduled export backups to:
-  - Share Sheet
-  - Google Drive (direct upload after OAuth connect)
-  - Dropbox (direct upload after OAuth connect)
-
-Excel sheets:
-- `FeedEvents`
-- `Measurements`
-- `TemperatureLogs`
-- `DiaperLogs`
-- `MedicationLogs`
-- `Milestones`
-- `DailySummary`
 
 ### Voice quick entry
 - `Today -> Voice Quick Entry` parses dictated text into structured entries
-- Works with iOS keyboard dictation microphone for quick hands-free logging
+- Includes in-app microphone speech-to-text (start/stop listening) for hands-free logging
 
 ### Routine suggestions
 - `Today` includes simple personalized routine suggestions from recent trends (feeds, diapers, temps, meds)

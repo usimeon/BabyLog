@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { WeightForAgeChart } from '../../components/WeightForAgeChart';
-import { Button, Card } from '../../components/ui';
+import { Card } from '../../components/ui';
 import { useAppContext } from '../../context/AppContext';
 import { listMeasurements } from '../../db/measurementRepo';
 import { getBabyById } from '../../db/babyRepo';
-import { exportChartImage } from '../../services/exports';
-import { presetDateRange } from '../../utils/dateRange';
 import { CaptureChart } from '../../components/CaptureChart';
 import { kgToDisplay } from '../../utils/units';
 import { estimateWeightPercentile, percentileBandForMonth } from '../../utils/growthPercentiles';
@@ -33,14 +31,6 @@ export const WeightChartsTab = () => {
   useEffect(() => {
     load();
   }, [babyId, weightUnit, dataVersion]);
-
-  const onExportImage = async () => {
-    try {
-      await exportChartImage('weight', presetDateRange('30d'));
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message ?? 'Unable to export chart image');
-    }
-  };
 
   const percentileOverlay = useMemo(() => {
     if (!observations.length) return null;
@@ -78,8 +68,6 @@ export const WeightChartsTab = () => {
           )}
         </Card>
       </CaptureChart>
-
-      <Button title="Export Weight Chart (PNG)" onPress={onExportImage} />
     </ScrollView>
   );
 };

@@ -74,8 +74,6 @@ const defaultBackupSettings: BackupSettings = {
   enabled: false,
   destination: 'share',
   intervalDays: 1,
-  includePdf: true,
-  includeExcel: true,
   lastBackupAt: null,
 };
 
