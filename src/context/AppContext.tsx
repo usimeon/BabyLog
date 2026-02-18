@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { AppState } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { initDatabase } from '../db';
-import { getOrCreateDefaultBaby } from '../db/babyRepo';
+import { getBabyById, getOrCreateDefaultBaby, upsertBaby } from '../db/babyRepo';
 import {
   getAmountUnit,
   getBackupSettings,
@@ -24,6 +24,8 @@ import { isSupabaseConfigured, supabase } from '../supabase/client';
 import { getCurrentSession } from '../supabase/auth';
 import { syncAll } from '../supabase/sync';
 import { runAutoBackupIfDue } from '../services/backups';
+import { nowIso } from '../utils/time';
+import { postAuthEnsureBabyProfile } from '../services/postAuthEnsureBabyProfile';
 
 type AppContextValue = {
   initialized: boolean;
@@ -40,6 +42,7 @@ type AppContextValue = {
   syncError: string | null;
   lastSyncAt: string | null;
   dataVersion: number;
+  hasRequiredBabyProfile: boolean;
   refreshAppState: () => Promise<void>;
   updateAmountUnit: (unit: 'ml' | 'oz') => Promise<void>;
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
@@ -50,6 +53,7 @@ type AppContextValue = {
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
   bumpDataVersion: () => void;
+  saveRequiredBabyProfile: (babyName: string, babyBirthdate: Date) => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -91,6 +95,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
+  const [hasRequiredBabyProfile, setHasRequiredBabyProfile] = useState(false);
 
   const refreshSession = async () => {
     const next = await getCurrentSession();
@@ -116,6 +121,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     setSmartAlertSettingsState(nextSmartAlerts);
     setBackupSettingsState(nextBackupSettings);
     setLastSyncAtState(nextLastSyncAt);
+    setHasRequiredBabyProfile(postAuthEnsureBabyProfile(baby));
   };
 
   useEffect(() => {
@@ -152,6 +158,35 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   };
 
   const bumpDataVersion = () => {
+    setDataVersion((prev) => prev + 1);
+  };
+
+  const saveRequiredBabyProfile = async (babyName: string, babyBirthdate: Date) => {
+    const existingLookup = babyId ? await getBabyById(babyId) : null;
+    const existing = existingLookup ?? (await getOrCreateDefaultBaby());
+    await upsertBaby(
+      {
+        ...existing,
+        name: babyName.trim(),
+        birthdate: new Date(
+          Date.UTC(
+            babyBirthdate.getFullYear(),
+            babyBirthdate.getMonth(),
+            babyBirthdate.getDate(),
+            12,
+            0,
+            0,
+            0,
+          ),
+        ).toISOString(),
+        updated_at: nowIso(),
+      },
+      true,
+    );
+    await refreshAppState();
+    if (isSupabaseConfigured && session) {
+      await syncNow();
+    }
     setDataVersion((prev) => prev + 1);
   };
 
@@ -237,6 +272,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       syncError,
       lastSyncAt,
       dataVersion,
+      hasRequiredBabyProfile,
       refreshAppState,
       updateAmountUnit,
       updateWeightUnit,
@@ -247,6 +283,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       refreshSession,
       syncNow,
       bumpDataVersion,
+      saveRequiredBabyProfile,
     }),
     [
       initialized,
@@ -262,6 +299,9 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       syncError,
       lastSyncAt,
       dataVersion,
+      hasRequiredBabyProfile,
+      babyId,
+      session,
     ],
   );
 

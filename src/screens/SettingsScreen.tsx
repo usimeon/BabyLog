@@ -4,14 +4,20 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
+import { getBabyById, upsertBaby } from '../db/babyRepo';
 import { cancelReminder, requestNotificationPermission } from '../services/notifications';
 import { recalculateReminder } from '../services/reminderCoordinator';
 import { BackupDestination } from '../types/models';
-import { formatDateTime } from '../utils/time';
+import { formatDateTime, nowIso } from '../utils/time';
 import { signOut } from '../supabase/auth';
 import { SyncBanner } from '../components/SyncBanner';
 import { runBackupNow } from '../services/backups';
 import { connectCloudProvider, disconnectCloudProvider, getCloudProviderConnected } from '../services/cloudStorage';
+
+const toUtcNoonIso = (value: Date) => {
+  const utc = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 12, 0, 0, 0));
+  return utc.toISOString();
+};
 
 export const SettingsScreen = () => {
   const {
@@ -44,6 +50,8 @@ export const SettingsScreen = () => {
   const [feverThresholdC, setFeverThresholdC] = useState(String(smartAlertSettings.feverThresholdC));
   const [lowFeedsPerDay, setLowFeedsPerDay] = useState(String(smartAlertSettings.lowFeedsPerDay));
   const [backupIntervalDays, setBackupIntervalDays] = useState(String(backupSettings.intervalDays));
+  const [babyBirthdate, setBabyBirthdate] = useState<Date>(new Date());
+  const [hasBabyBirthdate, setHasBabyBirthdate] = useState(false);
   const [driveConnected, setDriveConnected] = useState(false);
   const [dropboxConnected, setDropboxConnected] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -66,6 +74,24 @@ export const SettingsScreen = () => {
     };
     loadConnections();
   }, []);
+
+  React.useEffect(() => {
+    const loadBabyProfile = async () => {
+      const baby = await getBabyById(babyId);
+      if (!baby?.birthdate) {
+        setHasBabyBirthdate(false);
+        return;
+      }
+      const parsed = new Date(baby.birthdate);
+      if (Number.isNaN(parsed.getTime())) {
+        setHasBabyBirthdate(false);
+        return;
+      }
+      setBabyBirthdate(parsed);
+      setHasBabyBirthdate(true);
+    };
+    loadBabyProfile();
+  }, [babyId]);
 
   const showToast = (message: string, kind: 'success' | 'error' | 'info' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -239,6 +265,26 @@ export const SettingsScreen = () => {
     }
   };
 
+  const applyBabyProfile = async () => {
+    try {
+      const existing = await getBabyById(babyId);
+      if (!existing) throw new Error('Baby profile not found.');
+      const nextBirthdate = hasBabyBirthdate ? toUtcNoonIso(babyBirthdate) : null;
+      await upsertBaby(
+        {
+          ...existing,
+          birthdate: nextBirthdate,
+          updated_at: nowIso(),
+        },
+        true,
+      );
+      await syncNow();
+      showToast('Baby profile updated.', 'success');
+    } catch (error: any) {
+      showToast(`Baby profile update failed: ${error?.message ?? 'Unknown error'}`, 'error');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -258,6 +304,29 @@ export const SettingsScreen = () => {
         </View>
 
         <SyncBanner syncState={syncState} syncError={syncError} lastSyncAt={lastSyncAt} enabled={supabaseEnabled} />
+
+        <Card title="Baby Profile">
+          <Row>
+            <Ionicons name="happy-outline" size={16} color="#334155" />
+            <Text style={styles.sectionSub}>Used for age-aware charts and AI suggestions</Text>
+          </Row>
+          <Row>
+            <Text style={styles.label}>Birthdate available</Text>
+            <Switch value={hasBabyBirthdate} onValueChange={setHasBabyBirthdate} />
+          </Row>
+          {hasBabyBirthdate ? (
+            <>
+              <Label>Birthdate</Label>
+              <DateTimePicker value={babyBirthdate} mode="date" onChange={(_, d) => d && setBabyBirthdate(d)} />
+              <Text style={styles.sub}>Selected: {babyBirthdate.toLocaleDateString()}</Text>
+            </>
+          ) : (
+            <Text style={styles.sub}>Birthdate is not set.</Text>
+          )}
+          <View style={styles.buttonGroup}>
+            <Button title="Save Baby Profile" onPress={applyBabyProfile} />
+          </View>
+        </Card>
 
         {toast ? (
           <View

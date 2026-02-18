@@ -1,20 +1,47 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, TextInputProps, useColorScheme, View } from 'react-native';
+import { getTheme } from '../theme/designSystem';
 
-export const Card = ({ title, children }: React.PropsWithChildren<{ title?: string }>) => (
-  <View style={styles.card}>
-    {title ? <Text style={styles.cardTitle}>{title}</Text> : null}
-    {children}
-  </View>
-);
+export const Card = ({ title, children }: React.PropsWithChildren<{ title?: string }>) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  return (
+    <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }, theme.shadows.level1]}>
+      {title ? <Text style={[styles.cardTitle, { color: theme.colors.textPrimary }]}>{title}</Text> : null}
+      {children}
+    </View>
+  );
+};
 
 export const Row = ({ children }: React.PropsWithChildren) => <View style={styles.row}>{children}</View>;
 
-export const Label = ({ children }: React.PropsWithChildren) => <Text style={styles.label}>{children}</Text>;
+export const Label = ({ children }: React.PropsWithChildren) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  return <Text style={[styles.label, { color: theme.colors.textSecondary }]}>{children}</Text>;
+};
 
-export const Input = (props: React.ComponentProps<typeof TextInput>) => (
-  <TextInput {...props} style={[styles.input, props.style]} placeholderTextColor="#9aa2ad" />
-);
+export const Input = ({ style, editable, ...props }: TextInputProps) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  const disabled = editable === false;
+  return (
+    <TextInput
+      {...props}
+      editable={editable}
+      style={[
+        styles.input,
+        {
+          color: disabled ? theme.colors.textMuted : theme.colors.textPrimary,
+          backgroundColor: disabled ? theme.colors.neutral100 : theme.colors.surface,
+          borderColor: theme.colors.border,
+        },
+        style,
+      ]}
+      placeholderTextColor={theme.colors.textMuted}
+    />
+  );
+};
 
 export const Button = ({
   title,
@@ -23,15 +50,47 @@ export const Button = ({
 }: {
   title: string;
   onPress: () => void | Promise<void>;
-  variant?: 'primary' | 'secondary' | 'danger';
-}) => (
-  <Pressable
-    onPress={onPress}
-    style={[styles.button, variant === 'secondary' && styles.buttonSecondary, variant === 'danger' && styles.buttonDanger]}
-  >
-    <Text style={[styles.buttonText, variant !== 'primary' && styles.buttonTextAlt]}>{title}</Text>
-  </Pressable>
-);
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+}) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        variant === 'primary' && {
+          backgroundColor: pressed ? theme.colors.neutral700 : theme.colors.primary,
+        },
+        variant === 'secondary' && {
+          backgroundColor: theme.colors.neutral100,
+          borderColor: theme.colors.border,
+          borderWidth: 1,
+        },
+        variant === 'ghost' && {
+          backgroundColor: pressed ? `${theme.colors.primary}14` : 'transparent',
+          borderWidth: 0,
+        },
+        variant === 'danger' && {
+          backgroundColor: pressed ? '#B91C1C' : theme.colors.error,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.buttonText,
+          variant === 'primary' || variant === 'danger'
+            ? { color: '#fff' }
+            : variant === 'secondary'
+              ? { color: theme.colors.textPrimary }
+              : { color: theme.colors.primary },
+        ]}
+      >
+        {title}
+      </Text>
+    </Pressable>
+  );
+};
 
 export const SelectPill = ({
   label,
@@ -41,26 +100,38 @@ export const SelectPill = ({
   label: string;
   selected: boolean;
   onPress: () => void;
-}) => (
-  <Pressable onPress={onPress} style={[styles.pill, selected && styles.pillSelected]}>
-    <Text style={[styles.pillText, selected && styles.pillTextSelected]}>{label}</Text>
-  </Pressable>
-);
+}) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.pill,
+        { borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
+        selected && { borderColor: theme.colors.primary, backgroundColor: `${theme.colors.primary}14` },
+      ]}
+    >
+      <Text style={[styles.pillText, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+};
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e4e7ec',
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: '600',
+    letterSpacing: 0,
     marginBottom: 10,
-    color: '#223',
   },
   row: {
     flexDirection: 'row',
@@ -69,58 +140,45 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   label: {
-    fontSize: 13,
-    color: '#4b5563',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    letterSpacing: 0.2,
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d0d7de',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#111827',
-    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 52,
+    fontSize: 15,
+    lineHeight: 22,
   },
   button: {
-    backgroundColor: '#F77575',
-    borderRadius: 10,
-    paddingVertical: 11,
+    borderRadius: 14,
+    minHeight: 52,
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonSecondary: {
-    backgroundColor: '#eef2ff',
-  },
-  buttonDanger: {
-    backgroundColor: '#fee2e2',
-  },
   buttonText: {
-    color: '#fff',
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: '600',
-  },
-  buttonTextAlt: {
-    color: '#1f2937',
+    letterSpacing: 0.2,
   },
   pill: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginBottom: 6,
   },
-  pillSelected: {
-    borderColor: '#F77575',
-    backgroundColor: '#dbeafe',
-  },
   pillText: {
-    color: '#374151',
     fontSize: 12,
+    lineHeight: 16,
     fontWeight: '500',
-  },
-  pillTextSelected: {
-    color: '#F77575',
+    letterSpacing: 0.2,
   },
 });

@@ -104,6 +104,7 @@ No provider API key is stored in the mobile app bundle.
 ```bash
 npm run db:push
 supabase functions deploy ai-daily-insights
+supabase functions deploy ai-daily-insights-cron
 ```
 
 ### Set edge function secrets
@@ -111,7 +112,19 @@ supabase functions deploy ai-daily-insights
 ```bash
 supabase secrets set OPENAI_API_KEY=your_key_here
 supabase secrets set OPENAI_MODEL=gpt-4o-mini
+supabase secrets set AI_CRON_SECRET=choose_a_strong_random_secret
 ```
+
+### Free background scheduling (GitHub Actions)
+
+This repo includes `.github/workflows/ai-daily-insights-cron.yml` to trigger background AI generation twice daily.
+
+Required GitHub Action secrets:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `AI_CRON_SECRET`
+
+The scheduled workflow calls `ai-daily-insights-cron`, which precomputes and caches daily insights even when users do not open the app.
 
 ### Optional smoke test
 
@@ -199,6 +212,7 @@ npm run ios
 - AI daily trend analysis is merged with deterministic rules when available
 - AI suggestions show `AI-assisted` label in `Today`
 - If AI is unavailable/quota-limited, deterministic suggestions continue unchanged
+- AI includes baby age context when birthdate is set in `Settings -> Baby Profile`
 
 ### Free-tier AI strategy
 - AI generation is cached per `(user, baby, date)` in `daily_ai_insights`

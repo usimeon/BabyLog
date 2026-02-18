@@ -25,3 +25,6 @@ file_size_limit = "50MiB"
 
 [functions.ai-daily-insights]
 verify_jwt = true
+
+[functions.ai-daily-insights-cron]
+verify_jwt = false
