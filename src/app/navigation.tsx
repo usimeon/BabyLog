@@ -1,6 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { ActivityIndicator, Pressable, Text, useColorScheme, View } from 'react-native';
+import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,8 @@ import { LogsScreen } from '../screens/LogsScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
+import { BabyProfileGateScreen } from '../screens/BabyProfileGateScreen';
+import { getTheme } from '../theme/designSystem';
 
 export type RootStackParamList = {
   Main: undefined;
@@ -33,8 +35,6 @@ export type MainTabParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
-const activeTabColor = '#f77575';
-
 const tabIcon = (routeName: keyof MainTabParamList, focused: boolean, color: string, size: number) => {
   if (routeName === 'Today') {
     return <Ionicons name={focused ? 'sunny' : 'sunny-outline'} size={size} color={color} />;
@@ -50,27 +50,38 @@ const tabIcon = (routeName: keyof MainTabParamList, focused: boolean, color: str
   return <Ionicons name="add" size={size + 2} color={color} />;
 };
 
-const MainTabs = ({ initials }: { initials: string }) => (
-  <Tabs.Navigator
-    screenOptions={({ route, navigation }) => ({
-      headerTitleStyle: { fontWeight: '700', color: '#111827' },
+const MainTabs = ({ initials }: { initials: string }) => {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  const activeTabColor = theme.colors.primary;
+
+  return (
+    <Tabs.Navigator
+      screenOptions={({ route, navigation }) => ({
+      headerTitleStyle: {
+        fontWeight: '600',
+        fontSize: 18,
+        lineHeight: 24,
+        letterSpacing: 0,
+        color: theme.colors.textPrimary,
+      },
       headerStyle: {
-        backgroundColor: 'transparent',
+        backgroundColor: theme.colors.background,
       },
       headerShadowVisible: false,
       headerLeftContainerStyle: { paddingLeft: 16 },
       headerRightContainerStyle: { paddingRight: 16 },
       tabBarShowLabel: true,
       tabBarActiveTintColor: activeTabColor,
-      tabBarInactiveTintColor: '#6b7280',
-      tabBarLabelStyle: { fontSize: 12, fontWeight: '600', marginBottom: 3 },
+      tabBarInactiveTintColor: theme.colors.textMuted,
+      tabBarLabelStyle: { fontSize: 12, lineHeight: 16, fontWeight: '600', letterSpacing: 0.2, marginBottom: 3 },
       tabBarStyle: {
-        height: 78,
+        height: 72,
         paddingTop: 6,
-        paddingBottom: 10,
+        paddingBottom: 8,
         borderTopWidth: 1,
-        borderTopColor: '#d1d5db',
-        backgroundColor: '#ffffff',
+        borderTopColor: theme.colors.border,
+        backgroundColor: theme.colors.surface,
         overflow: 'visible',
       },
       headerLeft: () => (
@@ -85,12 +96,12 @@ const MainTabs = ({ initials }: { initials: string }) => (
               borderRadius: 20,
               backgroundColor: '#FFE194',
               borderWidth: 2,
-              borderColor: '#ffffff',
+              borderColor: theme.colors.surface,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: '#7a5a00', fontSize: 14, fontWeight: '700' }}>A</Text>
+            <Text style={{ color: '#7A5A00', fontSize: 14, fontWeight: '700' }}>A</Text>
           </View>
           <View
             style={{
@@ -105,7 +116,7 @@ const MainTabs = ({ initials }: { initials: string }) => (
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: '#7c3a1d', fontSize: 13, fontWeight: '700' }}>B</Text>
+            <Text style={{ color: '#7C3A1D', fontSize: 13, fontWeight: '700' }}>B</Text>
           </View>
           <View
             style={{
@@ -131,15 +142,15 @@ const MainTabs = ({ initials }: { initials: string }) => (
             <Pressable
               onPress={() => parentNav?.navigate('Charts')}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
               hitSlop={8}
             >
-              <Ionicons name="bar-chart-outline" size={16} color="#4b5563" />
+              <Ionicons name="bar-chart-outline" size={20} color={theme.colors.textSecondary} />
             </Pressable>
             <Pressable
               onPress={() => parentNav?.navigate('Settings')}
@@ -147,7 +158,7 @@ const MainTabs = ({ initials }: { initials: string }) => (
                 width: 44,
                 height: 44,
                 borderRadius: 22,
-                backgroundColor: '#90AACB',
+                backgroundColor: theme.colors.primary,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
@@ -158,7 +169,7 @@ const MainTabs = ({ initials }: { initials: string }) => (
           </View>
         );
       },
-      tabBarIcon: ({ focused, color }) => tabIcon(route.name as keyof MainTabParamList, focused, color, 22),
+      tabBarIcon: ({ focused, color }) => tabIcon(route.name as keyof MainTabParamList, focused, color, 24),
     })}
   >
     <Tabs.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today' }} />
@@ -209,10 +220,13 @@ const MainTabs = ({ initials }: { initials: string }) => (
     />
     <Tabs.Screen name="Logs" component={LogsScreen} options={{ title: 'Logs', tabBarLabel: 'Logs' }} />
   </Tabs.Navigator>
-);
+  );
+};
 
 export const AppNavigation = () => {
-  const { initialized, supabaseEnabled, session } = useAppContext();
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
+  const { initialized, supabaseEnabled, session, hasRequiredBabyProfile } = useAppContext();
 
   if (!initialized) {
     return (
@@ -223,13 +237,34 @@ export const AppNavigation = () => {
   }
 
   const requiresAuth = supabaseEnabled && !session;
+  const requiresBabyProfile = supabaseEnabled && Boolean(session) && !hasRequiredBabyProfile;
   const initials = session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'B';
+  const navTheme = scheme === 'dark' ? { ...DarkTheme } : { ...DefaultTheme };
+  navTheme.colors.background = theme.colors.background;
+  navTheme.colors.card = theme.colors.surface;
+  navTheme.colors.text = theme.colors.textPrimary;
+  navTheme.colors.border = theme.colors.border;
+  navTheme.colors.primary = theme.colors.primary;
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.colors.surface },
+          headerShadowVisible: false,
+          headerTitleStyle: {
+            fontWeight: '600',
+            fontSize: 18,
+            color: theme.colors.textPrimary,
+          },
+          headerTintColor: theme.colors.textPrimary,
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
         {requiresAuth ? (
           <Stack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
+        ) : requiresBabyProfile ? (
+          <Stack.Screen name="Auth" component={BabyProfileGateScreen} options={{ headerShown: false }} />
         ) : (
           <>
             <Stack.Screen name="Main" options={{ headerShown: false }}>
