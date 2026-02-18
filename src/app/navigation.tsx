@@ -18,6 +18,7 @@ export type RootStackParamList = {
   Main: undefined;
   Charts: undefined;
   Settings: undefined;
+  BabyOnboarding: { mode?: 'required' | 'new' } | undefined;
   AddEntry:
     | {
         type?: 'feed' | 'measurement' | 'temperature' | 'diaper' | 'medication' | 'milestone';
@@ -264,7 +265,12 @@ export const AppNavigation = () => {
         {requiresAuth ? (
           <Stack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
         ) : requiresBabyProfile ? (
-          <Stack.Screen name="Auth" component={BabyProfileGateScreen} options={{ headerShown: false }} />
+          <Stack.Screen
+            name="BabyOnboarding"
+            component={BabyProfileGateScreen}
+            options={{ headerShown: false, gestureEnabled: false }}
+            initialParams={{ mode: 'required' }}
+          />
         ) : (
           <>
             <Stack.Screen name="Main" options={{ headerShown: false }}>
@@ -273,6 +279,11 @@ export const AppNavigation = () => {
             <Stack.Screen name="Charts" component={ChartsScreen} options={{ title: 'Charts' }} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Profile' }} />
             <Stack.Screen name="AddEntry" component={AddEntryScreen} options={{ title: 'Add Entry' }} />
+            <Stack.Screen
+              name="BabyOnboarding"
+              component={BabyProfileGateScreen}
+              options={{ headerShown: false }}
+            />
           </>
         )}
       </Stack.Navigator>

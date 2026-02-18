@@ -1,8 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Button, Card, Input, Label, Row, SelectPill } from '../components/ui';
+import { RootStackParamList } from '../app/navigation';
+import { Button, Card, Input, Row, SelectPill } from '../components/ui';
 import { useAppContext } from '../context/AppContext';
 import { getBabyById, upsertBaby } from '../db/babyRepo';
 import { cancelReminder, requestNotificationPermission } from '../services/notifications';
@@ -19,7 +22,15 @@ const toUtcNoonIso = (value: Date) => {
   return utc.toISOString();
 };
 
+const InlineSettingRow = ({ label, children }: React.PropsWithChildren<{ label: string }>) => (
+  <View style={styles.inlineSettingRow}>
+    <Text style={styles.inlineSettingLabel}>{label}</Text>
+    <View style={styles.inlineControlWrap}>{children}</View>
+  </View>
+);
+
 export const SettingsScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     babyId,
     amountUnit,
@@ -310,21 +321,30 @@ export const SettingsScreen = () => {
             <Ionicons name="happy-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Used for age-aware charts and AI suggestions</Text>
           </Row>
-          <Row>
-            <Text style={styles.label}>Birthdate available</Text>
+          <InlineSettingRow label="Birthdate available">
             <Switch value={hasBabyBirthdate} onValueChange={setHasBabyBirthdate} />
-          </Row>
+          </InlineSettingRow>
           {hasBabyBirthdate ? (
             <>
-              <Label>Birthdate</Label>
-              <DateTimePicker value={babyBirthdate} mode="date" onChange={(_, d) => d && setBabyBirthdate(d)} />
-              <Text style={styles.sub}>Selected: {babyBirthdate.toLocaleDateString()}</Text>
+              <InlineSettingRow label="Birthdate">
+                <DateTimePicker
+                  value={babyBirthdate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'compact' : 'default'}
+                  onChange={(_, d) => d && setBabyBirthdate(d)}
+                />
+              </InlineSettingRow>
             </>
           ) : (
             <Text style={styles.sub}>Birthdate is not set.</Text>
           )}
           <View style={styles.buttonGroup}>
             <Button title="Save Baby Profile" onPress={applyBabyProfile} />
+            <Button
+              title="Add New Baby"
+              variant="secondary"
+              onPress={() => navigation.navigate('BabyOnboarding', { mode: 'new' })}
+            />
           </View>
         </Card>
 
@@ -344,23 +364,29 @@ export const SettingsScreen = () => {
             <Ionicons name="options-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Display preferences</Text>
           </Row>
-          <Label>Amount unit</Label>
-          <Row>
-            <SelectPill label="ml" selected={amountUnit === 'ml'} onPress={() => updateAmountUnit('ml')} />
-            <SelectPill label="oz" selected={amountUnit === 'oz'} onPress={() => updateAmountUnit('oz')} />
-          </Row>
+          <View style={styles.inlineUnitRow}>
+            <Text style={styles.inlineUnitLabel}>Amount unit</Text>
+            <View style={styles.inlineUnitOptions}>
+              <SelectPill label="ml" selected={amountUnit === 'ml'} onPress={() => updateAmountUnit('ml')} />
+              <SelectPill label="oz" selected={amountUnit === 'oz'} onPress={() => updateAmountUnit('oz')} />
+            </View>
+          </View>
 
-          <Label>Weight unit</Label>
-          <Row>
-            <SelectPill label="kg" selected={weightUnit === 'kg'} onPress={() => updateWeightUnit('kg')} />
-            <SelectPill label="lb" selected={weightUnit === 'lb'} onPress={() => updateWeightUnit('lb')} />
-          </Row>
+          <View style={styles.inlineUnitRow}>
+            <Text style={styles.inlineUnitLabel}>Weight unit</Text>
+            <View style={styles.inlineUnitOptions}>
+              <SelectPill label="kg" selected={weightUnit === 'kg'} onPress={() => updateWeightUnit('kg')} />
+              <SelectPill label="lb" selected={weightUnit === 'lb'} onPress={() => updateWeightUnit('lb')} />
+            </View>
+          </View>
 
-          <Label>Temperature unit</Label>
-          <Row>
-            <SelectPill label="F" selected={tempUnit === 'f'} onPress={() => updateTempUnit('f')} />
-            <SelectPill label="C" selected={tempUnit === 'c'} onPress={() => updateTempUnit('c')} />
-          </Row>
+          <View style={styles.inlineUnitRow}>
+            <Text style={styles.inlineUnitLabel}>Temperature unit</Text>
+            <View style={styles.inlineUnitOptions}>
+              <SelectPill label="F" selected={tempUnit === 'f'} onPress={() => updateTempUnit('f')} />
+              <SelectPill label="C" selected={tempUnit === 'c'} onPress={() => updateTempUnit('c')} />
+            </View>
+          </View>
         </Card>
 
         <Card title="Reminders">
@@ -368,24 +394,40 @@ export const SettingsScreen = () => {
             <Ionicons name="alarm-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Feeding reminder controls</Text>
           </Row>
-          <Row>
-            <Text style={styles.label}>Enable reminders</Text>
+          <InlineSettingRow label="Enable reminders">
             <Switch value={reminderSettings.enabled} onValueChange={applyReminderSettings} />
-          </Row>
+          </InlineSettingRow>
 
-          <Label>Interval hours</Label>
-          <Input value={intervalHours} onChangeText={setIntervalHours} keyboardType="number-pad" />
+          <InlineSettingRow label="Interval hours">
+            <Input
+              value={intervalHours}
+              onChangeText={setIntervalHours}
+              keyboardType="number-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
 
-          <Label>Quiet hours start</Label>
-          <DateTimePicker value={quietStart} mode="time" onChange={(_, d) => d && setQuietStart(d)} />
+          <InlineSettingRow label="Quiet hours start">
+            <DateTimePicker
+              value={quietStart}
+              mode="time"
+              display={Platform.OS === 'ios' ? 'compact' : 'default'}
+              onChange={(_, d) => d && setQuietStart(d)}
+            />
+          </InlineSettingRow>
 
-          <Label>Quiet hours end</Label>
-          <DateTimePicker value={quietEnd} mode="time" onChange={(_, d) => d && setQuietEnd(d)} />
+          <InlineSettingRow label="Quiet hours end">
+            <DateTimePicker
+              value={quietEnd}
+              mode="time"
+              display={Platform.OS === 'ios' ? 'compact' : 'default'}
+              onChange={(_, d) => d && setQuietEnd(d)}
+            />
+          </InlineSettingRow>
 
-          <Row>
-            <Text style={styles.label}>Allow during quiet hours</Text>
+          <InlineSettingRow label="Allow during quiet hours">
             <Switch value={reminderSettings.allowDuringQuietHours} onValueChange={toggleQuietHours} />
-          </Row>
+          </InlineSettingRow>
 
           <View style={styles.buttonGroup}>
             <Button title="Apply Reminder Changes" onPress={() => applyReminderSettings(reminderSettings.enabled, { notify: true })} />
@@ -397,21 +439,44 @@ export const SettingsScreen = () => {
             <Ionicons name="warning-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Threshold-based safety alerts</Text>
           </Row>
-          <Row>
-            <Text style={styles.label}>Enable smart alerts</Text>
+          <InlineSettingRow label="Enable smart alerts">
             <Switch value={smartAlertSettings.enabled} onValueChange={toggleSmartAlerts} />
-          </Row>
-          <Label>Feed gap warning (hours)</Label>
-          <Input value={feedGapHours} onChangeText={setFeedGapHours} keyboardType="decimal-pad" />
+          </InlineSettingRow>
+          <InlineSettingRow label="Feed gap warning (hours)">
+            <Input
+              value={feedGapHours}
+              onChangeText={setFeedGapHours}
+              keyboardType="decimal-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
 
-          <Label>Diaper gap warning (hours)</Label>
-          <Input value={diaperGapHours} onChangeText={setDiaperGapHours} keyboardType="decimal-pad" />
+          <InlineSettingRow label="Diaper gap warning (hours)">
+            <Input
+              value={diaperGapHours}
+              onChangeText={setDiaperGapHours}
+              keyboardType="decimal-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
 
-          <Label>Fever threshold (C)</Label>
-          <Input value={feverThresholdC} onChangeText={setFeverThresholdC} keyboardType="decimal-pad" />
+          <InlineSettingRow label="Fever threshold (C)">
+            <Input
+              value={feverThresholdC}
+              onChangeText={setFeverThresholdC}
+              keyboardType="decimal-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
 
-          <Label>Low feed count (24h)</Label>
-          <Input value={lowFeedsPerDay} onChangeText={setLowFeedsPerDay} keyboardType="number-pad" />
+          <InlineSettingRow label="Low feed count (24h)">
+            <Input
+              value={lowFeedsPerDay}
+              onChangeText={setLowFeedsPerDay}
+              keyboardType="number-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
 
           <View style={styles.buttonGroup}>
             <Button title="Apply Alert Thresholds" onPress={applySmartAlerts} />
@@ -423,20 +488,35 @@ export const SettingsScreen = () => {
             <Ionicons name="cloud-upload-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Scheduled export backup</Text>
           </Row>
-          <Row>
-            <Text style={styles.label}>Enable automatic backup</Text>
+          <InlineSettingRow label="Enable automatic backup">
             <Switch value={backupSettings.enabled} onValueChange={toggleAutoBackup} />
-          </Row>
-          <Label>Destination</Label>
-          <Row>
-            <SelectPill label="Share" selected={backupSettings.destination === 'share'} onPress={() => setBackupDestination('share')} />
-            <SelectPill label="Google Drive" selected={backupSettings.destination === 'google_drive'} onPress={() => setBackupDestination('google_drive')} />
-            <SelectPill label="Dropbox" selected={backupSettings.destination === 'dropbox'} onPress={() => setBackupDestination('dropbox')} />
-          </Row>
-          <Text style={styles.sub}>Google Drive: {driveConnected ? 'Connected' : 'Not connected'} | Dropbox: {dropboxConnected ? 'Connected' : 'Not connected'}</Text>
-          <Label>Backup interval (days)</Label>
-          <Input value={backupIntervalDays} onChangeText={setBackupIntervalDays} keyboardType="number-pad" />
-          <Text style={styles.sub}>Last backup: {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}</Text>
+          </InlineSettingRow>
+          <InlineSettingRow label="Destination">
+            <View style={styles.inlineUnitOptionsWrap}>
+              <SelectPill label="Share" selected={backupSettings.destination === 'share'} onPress={() => setBackupDestination('share')} />
+              <SelectPill label="Drive" selected={backupSettings.destination === 'google_drive'} onPress={() => setBackupDestination('google_drive')} />
+              <SelectPill label="Dropbox" selected={backupSettings.destination === 'dropbox'} onPress={() => setBackupDestination('dropbox')} />
+            </View>
+          </InlineSettingRow>
+          <InlineSettingRow label="Google Drive">
+            <Text style={styles.inlineValueText}>{driveConnected ? 'Connected' : 'Not connected'}</Text>
+          </InlineSettingRow>
+          <InlineSettingRow label="Dropbox">
+            <Text style={styles.inlineValueText}>{dropboxConnected ? 'Connected' : 'Not connected'}</Text>
+          </InlineSettingRow>
+          <InlineSettingRow label="Backup interval (days)">
+            <Input
+              value={backupIntervalDays}
+              onChangeText={setBackupIntervalDays}
+              keyboardType="number-pad"
+              style={styles.compactInlineInput}
+            />
+          </InlineSettingRow>
+          <InlineSettingRow label="Last backup">
+            <Text style={styles.inlineValueText}>
+              {backupSettings.lastBackupAt ? formatDateTime(backupSettings.lastBackupAt) : 'Never'}
+            </Text>
+          </InlineSettingRow>
           <View style={styles.buttonGroup}>
             <Button title="Connect Selected Provider" variant="secondary" onPress={connectSelectedProvider} />
             <Button title="Disconnect Selected Provider" variant="danger" onPress={disconnectSelectedProvider} />
@@ -450,16 +530,43 @@ export const SettingsScreen = () => {
             <Ionicons name="person-circle-outline" size={16} color="#334155" />
             <Text style={styles.sectionSub}>Access and linked caregivers</Text>
           </Row>
-
-          <Text style={styles.sectionSub}>Linked accounts</Text>
           <View style={styles.accountList}>
-            {dummyAccounts.map((account) => (
-              <View key={account.phone} style={styles.accountItem}>
-                <View>
-                  <Text style={styles.accountName}>{account.name}</Text>
-                  <Text style={styles.accountMeta}>{account.phone}</Text>
+            {dummyAccounts.map((account, index) => (
+              <View
+                key={account.phone}
+                style={[styles.accountItem, index < dummyAccounts.length - 1 ? styles.accountItemSeparator : null]}
+              >
+                <View style={styles.accountLeft}>
+                  <View
+                    style={[
+                      styles.accountAvatar,
+                      {
+                        backgroundColor: index % 3 === 0 ? '#FFE194' : index % 3 === 1 ? '#FFB085' : '#90AACB',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.accountAvatarText,
+                        { color: index % 3 === 0 ? '#7A5A00' : index % 3 === 1 ? '#7C3A1D' : '#FFFFFF' },
+                      ]}
+                    >
+                      {account.name
+                        .split(' ')
+                        .map((part) => part[0])
+                        .join('')
+                        .slice(0, 2)
+                        .toUpperCase()}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={styles.accountName}>{account.name}</Text>
+                    <Text style={styles.accountMeta}>{account.phone}</Text>
+                  </View>
                 </View>
-                <Text style={styles.accountMeta}>{account.lastUsed}</Text>
+                <View>
+                  <Text style={styles.accountLastUsed}>{account.lastUsed}</Text>
+                </View>
               </View>
             ))}
           </View>
@@ -512,22 +619,99 @@ const styles = StyleSheet.create({
   label: { color: '#374151', fontWeight: '500' },
   sub: { color: '#4b5563', fontSize: 13, marginBottom: 8 },
   sectionSub: { color: '#64748b', fontSize: 12, marginBottom: 8 },
+  inlineSettingRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 6,
+  },
+  inlineSettingLabel: {
+    color: '#374151',
+    fontWeight: '500',
+    fontSize: 13,
+    flex: 1,
+  },
+  inlineControlWrap: {
+    flexShrink: 1,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  inlineUnitRow: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 6,
+  },
+  inlineUnitLabel: {
+    color: '#374151',
+    fontWeight: '500',
+    fontSize: 13,
+    flex: 1,
+  },
+  inlineUnitOptions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  inlineUnitOptionsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    maxWidth: 220,
+  },
+  compactInlineInput: {
+    width: 88,
+    height: 40,
+    borderRadius: 12,
+    textAlign: 'right',
+  },
+  inlineValueText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
   buttonGroup: { marginTop: 8, gap: 8 },
   accountList: { gap: 8, marginBottom: 8 },
+  accountLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  accountAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   accountItem: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingHorizontal: 4,
+    paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
+  },
+  accountItemSeparator: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   accountName: { color: '#111827', fontSize: 13, fontWeight: '600' },
   accountMeta: { color: '#6b7280', fontSize: 12 },
-  sectionSpacer: { height: 16 },
+  accountLastUsed: { color: '#6b7280', fontSize: 12, fontWeight: '600' },
+  sectionSpacer: { height: 30 },
   signedInLine: { color: '#4b5563', fontSize: 13, marginBottom: 2 },
   signedInEmail: { color: '#111827', fontSize: 13, fontWeight: '700' },
   toast: {

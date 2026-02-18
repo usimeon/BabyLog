@@ -1,7 +1,7 @@
 import { BabyProfile } from '../types/models';
 import { createId } from '../utils/id';
 import { nowIso } from '../utils/time';
-import { getOne, runSql } from './client';
+import { getAll, getOne, runSql } from './client';
 
 export const getOrCreateDefaultBaby = async (): Promise<BabyProfile> => {
   const existing = await getOne<BabyProfile>(
@@ -63,4 +63,37 @@ export const upsertBaby = async (baby: BabyProfile, markDirty = false) => {
 
 export const getBabyById = async (id: string) => {
   return getOne<BabyProfile>('SELECT * FROM babies WHERE id = ? LIMIT 1;', [id]);
+};
+
+export const listBabies = async () => {
+  return getAll<BabyProfile>('SELECT * FROM babies WHERE deleted_at IS NULL ORDER BY created_at ASC;');
+};
+
+export const createBaby = async (input: { name: string; birthdate: string | null }) => {
+  const now = nowIso();
+  const baby: BabyProfile = {
+    id: createId('baby'),
+    name: input.name.trim() || 'My Baby',
+    birthdate: input.birthdate,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    dirty: 1,
+  };
+
+  await runSql(
+    `INSERT INTO babies(id, name, birthdate, created_at, updated_at, deleted_at, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?);`,
+    [
+      baby.id,
+      baby.name,
+      baby.birthdate ?? null,
+      baby.created_at,
+      baby.updated_at,
+      baby.deleted_at ?? null,
+      baby.dirty,
+    ],
+  );
+
+  return baby;
 };

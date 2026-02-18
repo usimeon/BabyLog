@@ -2,8 +2,9 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { AppState } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { initDatabase } from '../db';
-import { getBabyById, getOrCreateDefaultBaby, upsertBaby } from '../db/babyRepo';
+import { createBaby, getBabyById, getOrCreateDefaultBaby, upsertBaby } from '../db/babyRepo';
 import {
+  getActiveBabyId,
   getAmountUnit,
   getBackupSettings,
   getLastSyncAt,
@@ -12,6 +13,7 @@ import {
   getTempUnit,
   getWeightUnit,
   setAuthUserId,
+  setActiveBabyId,
   setAmountUnit,
   saveBackupSettings,
   saveSmartAlertSettings,
@@ -54,6 +56,7 @@ type AppContextValue = {
   syncNow: () => Promise<void>;
   bumpDataVersion: () => void;
   saveRequiredBabyProfile: (babyName: string, babyBirthdate: Date) => Promise<void>;
+  createNewBabyProfile: (babyName: string, babyBirthdate: Date) => Promise<string>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -104,7 +107,9 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   };
 
   const refreshAppState = async () => {
-    const baby = await getOrCreateDefaultBaby();
+    const configuredActiveBabyId = await getActiveBabyId();
+    const activeBaby = configuredActiveBabyId ? await getBabyById(configuredActiveBabyId) : null;
+    const baby = activeBaby && !activeBaby.deleted_at ? activeBaby : await getOrCreateDefaultBaby();
     const nextAmountUnit = (await getAmountUnit()) as 'ml' | 'oz';
     const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
     const nextTempUnit = (await getTempUnit()) as 'c' | 'f';
@@ -112,6 +117,10 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const nextSmartAlerts = await getSmartAlertSettings();
     const nextBackupSettings = await getBackupSettings();
     const nextLastSyncAt = await getLastSyncAt();
+
+    if (!configuredActiveBabyId || configuredActiveBabyId !== baby.id) {
+      await setActiveBabyId(baby.id);
+    }
 
     setBabyId(baby.id);
     setAmountUnitState(nextAmountUnit);
@@ -188,6 +197,29 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       await syncNow();
     }
     setDataVersion((prev) => prev + 1);
+  };
+
+  const createNewBabyProfile = async (babyName: string, babyBirthdate: Date) => {
+    const birthdate = new Date(
+      Date.UTC(
+        babyBirthdate.getFullYear(),
+        babyBirthdate.getMonth(),
+        babyBirthdate.getDate(),
+        12,
+        0,
+        0,
+        0,
+      ),
+    ).toISOString();
+
+    const created = await createBaby({ name: babyName, birthdate });
+    await setActiveBabyId(created.id);
+    await refreshAppState();
+    if (isSupabaseConfigured && session) {
+      await syncNow();
+    }
+    setDataVersion((prev) => prev + 1);
+    return created.id;
   };
 
   useEffect(() => {
@@ -284,6 +316,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       syncNow,
       bumpDataVersion,
       saveRequiredBabyProfile,
+      createNewBabyProfile,
     }),
     [
       initialized,
@@ -300,8 +333,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       lastSyncAt,
       dataVersion,
       hasRequiredBabyProfile,
-      babyId,
-      session,
+      createNewBabyProfile,
     ],
   );
 

@@ -12,6 +12,8 @@ const LAST_SYNC_AT = 'last_sync_at';
 const PINNED_LOGS_KEY = 'pinned_logs';
 const SMART_ALERTS_KEY = 'smart_alert_settings';
 const BACKUP_SETTINGS_KEY = 'backup_settings';
+const BABY_SEX_KEY = 'baby_sex';
+const ACTIVE_BABY_ID_KEY = 'active_baby_id';
 
 const defaults: ReminderSettings = {
   enabled: false,
@@ -129,4 +131,23 @@ export const getBackupSettings = async (): Promise<BackupSettings> => {
 
 export const saveBackupSettings = async (settings: BackupSettings) => {
   await setSetting(BACKUP_SETTINGS_KEY, JSON.stringify(settings));
+};
+
+export const getBabySex = async (): Promise<'boy' | 'girl' | 'other' | null> => {
+  const value = await getSetting(BABY_SEX_KEY);
+  if (value === 'boy' || value === 'girl' || value === 'other') return value;
+  return null;
+};
+
+export const setBabySex = async (value: 'boy' | 'girl' | 'other') => {
+  await setSetting(BABY_SEX_KEY, value);
+};
+
+export const getActiveBabyId = async () => {
+  const value = await getSetting(ACTIVE_BABY_ID_KEY);
+  return value?.trim() || null;
+};
+
+export const setActiveBabyId = async (babyId: string) => {
+  await setSetting(ACTIVE_BABY_ID_KEY, babyId);
 };

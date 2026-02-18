@@ -101,6 +101,44 @@ const pushDirtyRows = async (userId: string) => {
     `[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length} temps=${dirtyTemperatures.length} diapers=${dirtyDiapers.length} meds=${dirtyMedications.length} milestones=${dirtyMilestones.length}`,
   );
 
+  // Ensure remote babies exist for all dirty child rows, even when those baby rows
+  // are not currently marked dirty locally (e.g. after account switches or restores).
+  const referencedBabyIds = Array.from(
+    new Set(
+      [
+        ...dirtyFeeds.map((row) => row.baby_id),
+        ...dirtyMeasurements.map((row) => row.baby_id),
+        ...dirtyTemperatures.map((row) => row.baby_id),
+        ...dirtyDiapers.map((row) => row.baby_id),
+        ...dirtyMedications.map((row) => row.baby_id),
+        ...dirtyMilestones.map((row) => row.baby_id),
+      ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+    ),
+  );
+
+  if (referencedBabyIds.length) {
+    const placeholders = referencedBabyIds.map(() => '?').join(',');
+    const referencedBabies = await getAll<any>(
+      `SELECT * FROM babies WHERE id IN (${placeholders}) AND deleted_at IS NULL;`,
+      referencedBabyIds,
+    );
+
+    if (referencedBabies.length) {
+      const payload = referencedBabies.map((row) => ({
+        id: row.id,
+        user_id: userId,
+        name: row.name,
+        birthdate: row.birthdate,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        deleted_at: row.deleted_at,
+      }));
+
+      const { error } = await supabase.from('babies').upsert(payload, { onConflict: 'id' });
+      if (error) throw error;
+    }
+  }
+
   if (dirtyBabies.length) {
     const payload = dirtyBabies.map((row) => ({
       id: row.id,

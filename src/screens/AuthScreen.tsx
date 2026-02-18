@@ -17,16 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { signInWithEmail, signInWithGoogleOAuth, signUpWithEmail } from '../supabase/auth';
 import { isSupabaseConfigured } from '../supabase/client';
 import { useAppContext } from '../context/AppContext';
-import { getOrCreateDefaultBaby, upsertBaby } from '../db/babyRepo';
-import { nowIso } from '../utils/time';
 import { getTheme } from '../theme/designSystem';
-import { validateBabyProfile } from '../services/babyProfileValidation';
-import { BabyProfileForm } from '../components/BabyProfileForm';
-
-const toUtcNoonIso = (value: Date) => {
-  const utc = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 12, 0, 0, 0));
-  return utc.toISOString();
-};
 
 export const AuthScreen = () => {
   const scheme = useColorScheme();
@@ -39,11 +30,8 @@ export const AuthScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
-  const [babyName, setBabyName] = useState('');
-  const [babyBirthdate, setBabyBirthdate] = useState<Date>(new Date());
   const [busy, setBusy] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
-  const [babyProfileError, setBabyProfileError] = useState<string | null>(null);
   const isSignUp = mode === 'signUp';
 
   const submit = async () => {
@@ -76,28 +64,13 @@ export const AuthScreen = () => {
       if (mode === 'signIn') {
         await signInWithEmail(trimmedEmail, password);
       } else {
-        const validationError = validateBabyProfile(babyName, babyBirthdate);
-        if (validationError) {
-          setBabyProfileError(validationError);
-          return;
-        }
         if (password !== confirmPassword) {
           Alert.alert('Password mismatch', 'Confirm password must match.');
           return;
         }
         await signUpWithEmail(trimmedEmail, password);
-        const existingBaby = await getOrCreateDefaultBaby();
-        await upsertBaby(
-          {
-            ...existingBaby,
-            name: babyName.trim(),
-            birthdate: toUtcNoonIso(babyBirthdate),
-            updated_at: nowIso(),
-          },
-          true,
-        );
         await refreshAppState();
-        Alert.alert('Account created', 'Sign in with your credentials.');
+        Alert.alert('Account created', 'Sign in with your credentials, then complete baby onboarding.');
         setMode('signIn');
       }
       await refreshSession();
@@ -163,7 +136,7 @@ export const AuthScreen = () => {
             <Text style={[styles.subtitle, { color: theme.colors.textSecondary }, isSignUp && styles.subtitleCompact]}>
               {mode === 'signIn'
                 ? 'Enter your email and password to securely access your account.'
-                : 'Create a new account and set your baby profile to get started.'}
+                : 'Create your account first. Baby onboarding comes next on its own screen.'}
             </Text>
 
             <View style={[styles.inputWrap, isSignUp && styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
@@ -196,37 +169,21 @@ export const AuthScreen = () => {
             </View>
 
             {isSignUp ? (
-              <>
-                <View style={[styles.inputWrap, styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-                  <Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />
-                  <TextInput
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry={!showConfirmPassword}
-                    autoCapitalize="none"
-                    placeholder="Confirm password"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[styles.inputNative, { color: theme.colors.textPrimary }]}
-                  />
-                  <Pressable onPress={() => setShowConfirmPassword((prev) => !prev)} hitSlop={8}>
-                    <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={theme.colors.textMuted} />
-                  </Pressable>
-                </View>
-                <BabyProfileForm
-                  babyName={babyName}
-                  onBabyNameChange={(value) => {
-                    setBabyName(value);
-                    if (babyProfileError) setBabyProfileError(null);
-                  }}
-                  babyBirthdate={babyBirthdate}
-                  onBabyBirthdateChange={(value) => {
-                    setBabyBirthdate(value);
-                    if (babyProfileError) setBabyProfileError(null);
-                  }}
-                  compact
-                  errorText={babyProfileError}
+              <View style={[styles.inputWrap, styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                <Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />
+                <TextInput
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  placeholder="Confirm password"
+                  placeholderTextColor={theme.colors.textMuted}
+                  style={[styles.inputNative, { color: theme.colors.textPrimary }]}
                 />
-              </>
+                <Pressable onPress={() => setShowConfirmPassword((prev) => !prev)} hitSlop={8}>
+                  <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={theme.colors.textMuted} />
+                </Pressable>
+              </View>
             ) : null}
 
             {mode === 'signIn' ? (
