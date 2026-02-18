@@ -1,0 +1,24 @@
+name: AI Daily Insights Cron
+
+on:
+  schedule:
+    - cron: '0 6,18 * * *'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Supabase AI cron function
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AI_CRON_SECRET: ${{ secrets.AI_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          curl -sS -X POST "${SUPABASE_URL}/functions/v1/ai-daily-insights-cron" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "x-cron-secret: ${AI_CRON_SECRET}" \
+            -d '{"maxBabies":80}'
