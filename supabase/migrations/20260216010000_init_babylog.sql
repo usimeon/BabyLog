@@ -6,6 +6,7 @@ create table if not exists public.babies (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   birthdate timestamptz,
+  photo_uri text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   deleted_at timestamptz

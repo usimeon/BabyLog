@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../app/navigation';
-import { Button, Card, Input, Row, SelectPill } from '../components/ui';
+import { Button, Card, EmptyState, Input, Row, SelectPill } from '../components/ui';
+import { ToastBanner, ToastBannerKind } from '../components/ToastBanner';
 import { useAppContext } from '../context/AppContext';
 import { getPinnedLogs, setPinnedLogs } from '../db/settingsRepo';
 import { listFeeds, softDeleteFeed } from '../db/feedRepo';
@@ -14,6 +15,8 @@ import { listDiaperLogs, softDeleteDiaperLog } from '../db/diaperRepo';
 import { getMedicationSpacingAlert, listMedicationLogs, softDeleteMedicationLog } from '../db/medicationRepo';
 import { listMilestones, softDeleteMilestone } from '../db/milestoneRepo';
 import { recalculateReminder } from '../services/reminderCoordinator';
+import { AppTheme } from '../theme/designSystem';
+import { useAppTheme } from '../theme/useAppTheme';
 import { formatDateTime, startOfDay } from '../utils/time';
 import { cToDisplay, formatAmount, formatTemp, formatWeight } from '../utils/units';
 
@@ -45,16 +48,94 @@ type AlertItem = {
 
 type RangePreset = 'today' | '7d' | '30d' | 'all';
 
+type ToastState = {
+  kind: ToastBannerKind;
+  message: string;
+} | null;
+
+const getKindMeta = (kind: EntryKind, theme: AppTheme) => {
+  if (kind === 'feed') {
+    return {
+      label: 'Feed',
+      icon: 'restaurant-outline' as const,
+      iconColor: '#BE123C',
+      bg: theme.mode === 'dark' ? 'rgba(190, 18, 60, 0.24)' : '#FFF1F2',
+      border: theme.mode === 'dark' ? 'rgba(251, 113, 133, 0.45)' : '#FECDD3',
+    };
+  }
+
+  if (kind === 'measurement') {
+    return {
+      label: 'Growth',
+      icon: 'barbell-outline' as const,
+      iconColor: '#0F766E',
+      bg: theme.mode === 'dark' ? 'rgba(15, 118, 110, 0.26)' : '#ECFDF5',
+      border: theme.mode === 'dark' ? 'rgba(52, 211, 153, 0.45)' : '#BBF7D0',
+    };
+  }
+
+  if (kind === 'temperature') {
+    return {
+      label: 'Temp',
+      icon: 'thermometer-outline' as const,
+      iconColor: '#B45309',
+      bg: theme.mode === 'dark' ? 'rgba(180, 83, 9, 0.22)' : '#FFFBEB',
+      border: theme.mode === 'dark' ? 'rgba(251, 191, 36, 0.45)' : '#FDE68A',
+    };
+  }
+
+  if (kind === 'diaper') {
+    return {
+      label: 'Diaper',
+      icon: 'water-outline' as const,
+      iconColor: '#1D4ED8',
+      bg: theme.mode === 'dark' ? 'rgba(29, 78, 216, 0.24)' : '#EFF6FF',
+      border: theme.mode === 'dark' ? 'rgba(56, 189, 248, 0.45)' : '#BFDBFE',
+    };
+  }
+
+  if (kind === 'medication') {
+    return {
+      label: 'Medication',
+      icon: 'medkit-outline' as const,
+      iconColor: '#7C2D12',
+      bg: theme.mode === 'dark' ? 'rgba(124, 45, 18, 0.24)' : '#FFF7ED',
+      border: theme.mode === 'dark' ? 'rgba(249, 115, 22, 0.45)' : '#FDBA74',
+    };
+  }
+
+  return {
+    label: 'Milestone',
+    icon: 'trophy-outline' as const,
+    iconColor: '#6D28D9',
+    bg: theme.mode === 'dark' ? 'rgba(109, 40, 217, 0.24)' : '#F5F3FF',
+    border: theme.mode === 'dark' ? 'rgba(167, 139, 250, 0.45)' : '#DDD6FE',
+  };
+};
+
+const rangeFilterPills: Array<{ id: RangePreset; label: string }> = [
+  { id: 'today', label: 'today' },
+  { id: '7d', label: '7d' },
+  { id: '30d', label: '30d' },
+  { id: 'all', label: 'all' },
+];
+
 export const LogsScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   const { babyId, amountUnit, weightUnit, tempUnit, reminderSettings, smartAlertSettings, syncNow, bumpDataVersion, dataVersion } =
     useAppContext();
+
   const [filter, setFilter] = useState<LogFilter>('all');
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [rangePreset, setRangePreset] = useState<RangePreset>('7d');
   const [pinned, setPinned] = useState<string[]>([]);
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
   const [glance, setGlance] = useState<GlanceStats>({
     feedsToday: 0,
     diapersToday: 0,
@@ -64,6 +145,16 @@ export const LogsScreen = () => {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   const logKey = (entry: Pick<LogEntry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
+
+  const showToast = (message: string, kind: ToastBannerKind = 'info') => {
+    setToast({ kind, message });
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(timeout);
+  }, [toast]);
 
   const loadPinned = useCallback(async () => {
     const keys = await getPinnedLogs();
@@ -86,7 +177,7 @@ export const LogsScreen = () => {
         kind: 'feed' as const,
         timestamp: item.timestamp,
         title: `Feed • ${item.type}`,
-        subtitle: `${formatAmount(item.amount_ml, amountUnit)} • ${item.duration_minutes ?? 0} min • ${item.side}`,
+        subtitle: `${formatAmount(item.amount_ml, item.type === 'solids' ? 'oz' : amountUnit)} • ${item.duration_minutes ?? 0} min • ${item.side}`,
         notes: item.notes,
       })),
       ...measurements.map((item) => ({
@@ -132,6 +223,7 @@ export const LogsScreen = () => {
     ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
     setEntries(mapped);
+    setPendingDeleteKey(null);
 
     const dayStart = startOfDay(new Date()).getTime();
     setGlance({
@@ -233,21 +325,13 @@ export const LogsScreen = () => {
     let typed: LogEntry[] = byRange;
     if (filter === 'pinned') {
       typed = byRange.filter((x) => pinned.includes(logKey(x)));
-    } else if (filter === 'feed') {
-      typed = byRange.filter((x) => x.kind === 'feed');
-    } else if (filter === 'measurement') {
-      typed = byRange.filter((x) => x.kind === 'measurement');
-    } else if (filter === 'temperature') {
-      typed = byRange.filter((x) => x.kind === 'temperature');
-    } else if (filter === 'diaper') {
-      typed = byRange.filter((x) => x.kind === 'diaper');
-    } else if (filter === 'medication') {
-      typed = byRange.filter((x) => x.kind === 'medication');
-    } else if (filter === 'milestone') {
-      typed = byRange.filter((x) => x.kind === 'milestone');
+    } else if (filter !== 'all') {
+      typed = byRange.filter((x) => x.kind === filter);
     }
+
     const query = search.trim().toLowerCase();
     if (!query) return typed;
+
     return typed.filter((x) => {
       const text = `${x.kind} ${x.title} ${x.subtitle} ${x.notes ?? ''}`.toLowerCase();
       return text.includes(query);
@@ -267,29 +351,42 @@ export const LogsScreen = () => {
     return counts;
   }, [visible]);
 
-  const onDelete = (entry: LogEntry) => {
-    Alert.alert('Delete entry', 'Remove this log entry?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          if (entry.kind === 'feed') {
-            await softDeleteFeed(entry.id);
-            await recalculateReminder(babyId, reminderSettings);
-          }
-          if (entry.kind === 'measurement') await softDeleteMeasurement(entry.id);
-          if (entry.kind === 'temperature') await softDeleteTemperatureLog(entry.id);
-          if (entry.kind === 'diaper') await softDeleteDiaperLog(entry.id);
-          if (entry.kind === 'medication') await softDeleteMedicationLog(entry.id);
-          if (entry.kind === 'milestone') await softDeleteMilestone(entry.id);
+  const deleteEntry = async (entry: LogEntry) => {
+    try {
+      if (entry.kind === 'feed') {
+        await softDeleteFeed(entry.id);
+        try {
+          await recalculateReminder(babyId, reminderSettings);
+        } catch {
+          // keep deletion successful even if reminder reschedule fails
+        }
+      }
+      if (entry.kind === 'measurement') await softDeleteMeasurement(entry.id);
+      if (entry.kind === 'temperature') await softDeleteTemperatureLog(entry.id);
+      if (entry.kind === 'diaper') await softDeleteDiaperLog(entry.id);
+      if (entry.kind === 'medication') await softDeleteMedicationLog(entry.id);
+      if (entry.kind === 'milestone') await softDeleteMilestone(entry.id);
+    } catch (error: any) {
+      showToast(error?.message ?? 'Delete failed.', 'error');
+      return;
+    }
 
-          await syncNow();
-          bumpDataVersion();
-          load();
-        },
-      },
-    ]);
+    bumpDataVersion();
+    await load();
+    void syncNow().catch(() => undefined);
+    showToast('Entry deleted.', 'success');
+  };
+
+  const requestDelete = (entry: LogEntry) => {
+    const key = logKey(entry);
+    if (pendingDeleteKey !== key) {
+      setPendingDeleteKey(key);
+      showToast('Tap delete again to confirm.', 'info');
+      return;
+    }
+
+    setPendingDeleteKey(null);
+    void deleteEntry(entry);
   };
 
   const onRefresh = async () => {
@@ -297,6 +394,9 @@ export const LogsScreen = () => {
     try {
       await syncNow();
       await load();
+      showToast('Logs refreshed.', 'success');
+    } catch (error: any) {
+      showToast(error?.message ?? 'Refresh failed.', 'error');
     } finally {
       setRefreshing(false);
     }
@@ -310,62 +410,115 @@ export const LogsScreen = () => {
     await setPinnedLogs(next);
   };
 
+  const renderRow = ({ item, index }: { item: LogEntry; index: number }) => {
+    const itemDay = item.timestamp.slice(0, 10);
+    const prevDay = index > 0 ? visible[index - 1].timestamp.slice(0, 10) : '';
+    const showDayHeader = itemDay !== prevDay;
+    const meta = getKindMeta(item.kind, theme);
+    const isDeletePending = pendingDeleteKey === logKey(item);
+
+    return (
+      <>
+        {showDayHeader ? (
+          <Text style={[styles.dayHeader, { color: theme.colors.textSecondary }]}> 
+            {new Date(`${itemDay}T00:00:00`).toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            })}
+          </Text>
+        ) : null}
+
+        <Pressable
+          style={[styles.row, { backgroundColor: meta.bg, borderColor: meta.border }]}
+          onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
+          onLongPress={() => requestDelete(item)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${meta.label} entry`}
+        >
+          <View style={styles.rowHead}>
+            <View style={styles.kindWrap}>
+              <View style={[styles.kindIconBubble, { borderColor: meta.border, backgroundColor: theme.colors.surface }]}> 
+                <Ionicons name={meta.icon} size={16} color={meta.iconColor} />
+              </View>
+              <Text style={[styles.kind, { color: meta.iconColor }]}>{meta.label}</Text>
+            </View>
+
+            <View style={styles.rowActions}>
+              <Pressable
+                onPress={() => togglePin(item)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={pinned.includes(logKey(item)) ? 'Unpin entry' : 'Pin entry'}
+              >
+                <Ionicons
+                  name={pinned.includes(logKey(item)) ? 'star' : 'star-outline'}
+                  size={18}
+                  color={pinned.includes(logKey(item)) ? '#F59E0B' : theme.colors.textMuted}
+                />
+              </Pressable>
+              <Pressable
+                onPress={() => requestDelete(item)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Delete entry"
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color={isDeletePending ? theme.colors.error : theme.colors.textMuted}
+                />
+              </Pressable>
+            </View>
+          </View>
+
+          <Text style={[styles.title, { color: theme.colors.textPrimary }]}>{item.title}</Text>
+          <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>{formatDateTime(item.timestamp)}</Text>
+          <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>{item.subtitle || '—'}</Text>
+          {item.notes ? <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>{item.notes}</Text> : null}
+        </Pressable>
+      </>
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}> 
       <FlatList
         data={visible}
         keyExtractor={(item) => `${item.kind}-${item.id}`}
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {toast ? <ToastBanner kind={toast.kind} message={toast.message} onDismiss={() => setToast(null)} /> : null}
+
             <Card title="Quick Add">
               <Row>
                 <SelectPill label="+ Feed" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'feed' })} />
-                <SelectPill
-                  label="+ Growth"
-                  selected={false}
-                  onPress={() => navigation.navigate('AddEntry', { type: 'measurement' })}
-                />
-                <SelectPill
-                  label="+ Temp"
-                  selected={false}
-                  onPress={() => navigation.navigate('AddEntry', { type: 'temperature' })}
-                />
-                <SelectPill
-                  label="+ Diaper"
-                  selected={false}
-                  onPress={() => navigation.navigate('AddEntry', { type: 'diaper' })}
-                />
-                <SelectPill
-                  label="+ Med"
-                  selected={false}
-                  onPress={() => navigation.navigate('AddEntry', { type: 'medication' })}
-                />
-                <SelectPill
-                  label="+ Milestone"
-                  selected={false}
-                  onPress={() => navigation.navigate('AddEntry', { type: 'milestone' })}
-                />
+                <SelectPill label="+ Growth" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'measurement' })} />
+                <SelectPill label="+ Temp" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'temperature' })} />
+                <SelectPill label="+ Diaper" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'diaper' })} />
+                <SelectPill label="+ Med" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'medication' })} />
+                <SelectPill label="+ Milestone" selected={false} onPress={() => navigation.navigate('AddEntry', { type: 'milestone' })} />
               </Row>
               <Button title="Refresh Logs" variant="secondary" onPress={load} />
             </Card>
 
             <Card title="Today At A Glance">
               <Row>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{glance.entriesToday}</Text>
-                  <Text style={styles.statLabel}>entries</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{glance.entriesToday}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>entries</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{glance.feedsToday}</Text>
-                  <Text style={styles.statLabel}>feeds</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{glance.feedsToday}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>feeds</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{glance.diapersToday}</Text>
-                  <Text style={styles.statLabel}>diapers</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{glance.diapersToday}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>diapers</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{glance.latestTemp}</Text>
-                  <Text style={styles.statLabel}>latest {tempUnit.toUpperCase()}</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{glance.latestTemp}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>latest {tempUnit.toUpperCase()}</Text>
                 </View>
               </Row>
             </Card>
@@ -375,191 +528,162 @@ export const LogsScreen = () => {
                 alerts.map((item, idx) => (
                   <Text
                     key={`${item.level}-${idx}`}
-                    style={[styles.alertItem, item.level === 'critical' ? styles.alertCritical : styles.alertWarning]}
+                    style={[
+                      styles.alertItem,
+                      {
+                        backgroundColor: item.level === 'critical' ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                        color: item.level === 'critical' ? theme.colors.error : theme.colors.warning,
+                      },
+                    ]}
                   >
                     {item.level === 'critical' ? 'Critical: ' : 'Warning: '}
                     {item.message}
                   </Text>
                 ))
               ) : (
-                <Text style={styles.alertOk}>No active alerts right now.</Text>
+                <Text style={[styles.alertOk, { color: theme.colors.success, backgroundColor: theme.colors.surfaceAlt }]}>No active alerts right now.</Text>
               )}
             </Card>
 
             <Card title="Filter">
-              <Text style={styles.filterTitle}>Range</Text>
+              <Text style={[styles.filterTitle, { color: theme.colors.textSecondary }]}>Range</Text>
               <Row>
-                <SelectPill label="today" selected={rangePreset === 'today'} onPress={() => setRangePreset('today')} />
-                <SelectPill label="7d" selected={rangePreset === '7d'} onPress={() => setRangePreset('7d')} />
-                <SelectPill label="30d" selected={rangePreset === '30d'} onPress={() => setRangePreset('30d')} />
-                <SelectPill label="all" selected={rangePreset === 'all'} onPress={() => setRangePreset('all')} />
-              </Row>
-
-              <Text style={styles.filterTitle}>Type</Text>
-              <Row>
-                {filters.map((option) => (
-                  <SelectPill
-                    key={option}
-                    label={option}
-                    selected={filter === option}
-                    onPress={() => setFilter(option)}
-                  />
+                {rangeFilterPills.map((item) => (
+                  <SelectPill key={item.id} label={item.label} selected={rangePreset === item.id} onPress={() => setRangePreset(item.id)} />
                 ))}
               </Row>
-              <Input
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Search notes, type, details..."
-                style={{ marginTop: 10 }}
-              />
-              <Text style={styles.hint}>Tap to edit. Long press to delete.</Text>
+
+              <Text style={[styles.filterTitle, { color: theme.colors.textSecondary }]}>Type</Text>
+              <Row>
+                {filters.map((option) => (
+                  <SelectPill key={option} label={option} selected={filter === option} onPress={() => setFilter(option)} />
+                ))}
+              </Row>
+
+              <Input value={search} onChangeText={setSearch} placeholder="Search notes, type, details..." style={styles.searchInput} />
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>Tap entry to edit. Long-press or trash icon to delete.</Text>
             </Card>
 
             <Card title="Filtered Snapshot">
               <Row>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{visible.length}</Text>
-                  <Text style={styles.statLabel}>entries</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{visible.length}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>entries</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.feed}</Text>
-                  <Text style={styles.statLabel}>feeds</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.feed}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>feeds</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.measurement}</Text>
-                  <Text style={styles.statLabel}>growth</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.measurement}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>growth</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.temperature}</Text>
-                  <Text style={styles.statLabel}>temp</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.temperature}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>temp</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.diaper}</Text>
-                  <Text style={styles.statLabel}>diaper</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.diaper}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>diapers</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.medication}</Text>
-                  <Text style={styles.statLabel}>meds</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.medication}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>meds</Text>
                 </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statValue}>{filteredCounts.milestone}</Text>
-                  <Text style={styles.statLabel}>milestones</Text>
+                <View style={[styles.statBox, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}> 
+                  <Text style={[styles.statValue, { color: theme.colors.textPrimary }]}>{filteredCounts.milestone}</Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>milestones</Text>
                 </View>
               </Row>
             </Card>
           </View>
         }
-        renderItem={({ item, index }) => {
-          const itemDay = item.timestamp.slice(0, 10);
-          const prevDay = index > 0 ? visible[index - 1].timestamp.slice(0, 10) : '';
-          const showDayHeader = itemDay !== prevDay;
-
-          return (
-            <>
-              {showDayHeader ? (
-                <Text style={styles.dayHeader}>
-                  {new Date(`${itemDay}T00:00:00`).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                  })}
-                </Text>
-              ) : null}
-              <Pressable
-                style={styles.row}
-                onPress={() => navigation.navigate('AddEntry', { type: item.kind, entryId: item.id })}
-                onLongPress={() => onDelete(item)}
-              >
-                <View style={styles.rowHead}>
-                  <Text style={styles.kind}>{item.kind.toUpperCase()}</Text>
-                  <Pressable onPress={() => togglePin(item)} hitSlop={8}>
-                    <Ionicons
-                      name={pinned.includes(logKey(item)) ? 'star' : 'star-outline'}
-                      size={18}
-                      color={pinned.includes(logKey(item)) ? '#f59e0b' : '#94a3b8'}
-                    />
-                  </Pressable>
-                </View>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.sub}>{formatDateTime(item.timestamp)}</Text>
-                <Text style={styles.sub}>{item.subtitle || '—'}</Text>
-                {item.notes ? <Text style={styles.sub}>{item.notes}</Text> : null}
-              </Pressable>
-            </>
-          );
-        }}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        ListEmptyComponent={<Text style={styles.empty}>No entries yet.</Text>}
+        renderItem={renderRow}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListEmptyComponent={<EmptyState title="No entries yet" subtitle="Add your first log entry to begin tracking." />}
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
+        contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f5f7fb' },
-  headerWrap: { paddingTop: 16, gap: 8 },
-  hint: { color: '#6b7280', fontSize: 12, marginTop: 4 },
-  filterTitle: { color: '#475569', fontWeight: '600', marginTop: 8, marginBottom: 6 },
-  dayHeader: {
-    color: '#334155',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 8,
-    marginBottom: 6,
-    marginLeft: 4,
-  },
-  statBox: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    minWidth: 72,
-  },
-  statValue: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  statLabel: { fontSize: 11, color: '#64748b' },
-  alertItem: {
-    fontSize: 13,
-    marginBottom: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  alertWarning: {
-    backgroundColor: '#fffbeb',
-    color: '#92400e',
-  },
-  alertCritical: {
-    backgroundColor: '#fef2f2',
-    color: '#991b1b',
-  },
-  alertOk: {
-    fontSize: 13,
-    color: '#065f46',
-    backgroundColor: '#ecfdf5',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  row: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 12,
-  },
-  rowHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  kind: { color: '#F77575', fontSize: 11, fontWeight: '700', marginBottom: 2 },
-  title: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 2 },
-  sub: { fontSize: 13, color: '#4b5563' },
-  empty: { textAlign: 'center', color: '#6b7280', marginTop: 40 },
-});
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
+    safe: { flex: 1 },
+    headerWrap: { paddingTop: theme.spacing[4], gap: theme.spacing[2] },
+    hint: { ...theme.typography.caption, marginTop: theme.spacing[1] },
+    filterTitle: { ...theme.typography.caption, marginTop: theme.spacing[2], marginBottom: theme.spacing[1] },
+    dayHeader: {
+      ...theme.typography.caption,
+      fontWeight: '700',
+      marginTop: theme.spacing[2],
+      marginBottom: theme.spacing[1],
+      marginLeft: theme.spacing[1],
+    },
+    statBox: {
+      borderWidth: 1,
+      borderRadius: theme.radius.sm,
+      paddingVertical: theme.spacing[2],
+      paddingHorizontal: theme.spacing[3],
+      minWidth: 74,
+    },
+    statValue: { ...theme.typography.h6, fontWeight: '800' },
+    statLabel: { ...theme.typography.caption },
+    alertItem: {
+      ...theme.typography.bodySm,
+      marginBottom: theme.spacing[2],
+      paddingHorizontal: theme.spacing[3],
+      paddingVertical: theme.spacing[2],
+      borderRadius: theme.radius.sm,
+      fontWeight: '600',
+    },
+    alertOk: {
+      ...theme.typography.bodySm,
+      paddingHorizontal: theme.spacing[3],
+      paddingVertical: theme.spacing[2],
+      borderRadius: theme.radius.sm,
+      fontWeight: '600',
+    },
+    searchInput: {
+      marginTop: theme.spacing[2],
+    },
+    row: {
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      padding: theme.spacing[3],
+    },
+    rowHead: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: theme.spacing[1],
+    },
+    kindWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing[2],
+    },
+    kindIconBubble: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    kind: { ...theme.typography.caption, fontWeight: '800' },
+    rowActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing[3],
+    },
+    title: { ...theme.typography.bodyLg, fontWeight: '800', marginBottom: theme.spacing[1] },
+    sub: { ...theme.typography.bodySm, marginBottom: 2 },
+    separator: { height: theme.spacing[2] },
+    listContent: {
+      paddingHorizontal: theme.spacing[4],
+      paddingBottom: theme.spacing[4],
+    },
+  });

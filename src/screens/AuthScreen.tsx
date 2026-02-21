@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,10 +13,54 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ToastBanner, ToastBannerKind } from '../components/ToastBanner';
 import { signInWithEmail, signInWithGoogleOAuth, signUpWithEmail } from '../supabase/auth';
 import { isSupabaseConfigured } from '../supabase/client';
 import { useAppContext } from '../context/AppContext';
 import { getTheme } from '../theme/designSystem';
+
+type AuthField = 'email' | 'password' | 'confirmPassword';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 72;
+
+const formatAuthErrorMessage = (error: any, mode: 'signIn' | 'signUp') => {
+  const raw = String(error?.message ?? '').trim();
+  const normalized = raw.toLowerCase();
+
+  if (
+    normalized.includes('email rate limit exceeded') ||
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests')
+  ) {
+    return mode === 'signUp'
+      ? 'Too many sign-up attempts. Please wait a few minutes and try again.'
+      : 'Too many attempts. Please wait a few minutes and try again.';
+  }
+
+  if (mode === 'signIn') {
+    if (
+      normalized.includes('user not found') ||
+      normalized.includes('email not found') ||
+      normalized.includes('no user') ||
+      normalized.includes('account not found')
+    ) {
+      return 'Please sign up.';
+    }
+
+    if (
+      normalized.includes('invalid login credentials') ||
+      normalized.includes('invalid credentials') ||
+      normalized.includes('wrong password') ||
+      normalized.includes('invalid password')
+    ) {
+      return 'Wrong password.';
+    }
+  }
+
+  return raw || 'Authentication failed.';
+};
 
 export const AuthScreen = () => {
   const scheme = useColorScheme();
@@ -32,50 +75,80 @@ export const AuthScreen = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
+  const [banner, setBanner] = useState<{ kind: ToastBannerKind; message: string } | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<AuthField, string>>>({});
   const isSignUp = mode === 'signUp';
+
+  const showBanner = (message: string, kind: ToastBannerKind = 'info') => {
+    setBanner({ kind, message });
+  };
+
+  const clearFieldError = (field: AuthField) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setFieldErrors({});
+  }, [mode]);
 
   const submit = async () => {
     try {
+      const nextErrors: Partial<Record<AuthField, string>> = {};
+      const trimmedEmail = email.trim().toLowerCase();
+      const passwordValue = password;
+      const confirmPasswordValue = confirmPassword;
+
+      if (!trimmedEmail) {
+        nextErrors.email = 'Email is required.';
+      } else if (!EMAIL_REGEX.test(trimmedEmail)) {
+        nextErrors.email = 'Enter a valid email address.';
+      }
+
+      if (!passwordValue) {
+        nextErrors.password = 'Password is required.';
+      } else if (passwordValue.length < MIN_PASSWORD_LENGTH) {
+        nextErrors.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+      } else if (passwordValue.length > MAX_PASSWORD_LENGTH) {
+        nextErrors.password = `Password must be ${MAX_PASSWORD_LENGTH} characters or fewer.`;
+      }
+
+      if (mode === 'signUp') {
+        if (!confirmPasswordValue) {
+          nextErrors.confirmPassword = 'Confirm password is required.';
+        } else if (confirmPasswordValue !== passwordValue) {
+          nextErrors.confirmPassword = 'Confirm password must match.';
+        }
+      }
+
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors);
+        const firstError = Object.values(nextErrors)[0];
+        if (firstError) showBanner(firstError, 'error');
+        return;
+      }
+
+      setFieldErrors({});
       setBusy(true);
       if (!isSupabaseConfigured) {
-        Alert.alert(
-          'Supabase not configured',
-          'Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.',
-        );
-        return;
-      }
-
-      const trimmedEmail = email.trim();
-      if (!trimmedEmail) {
-        Alert.alert('Missing email', 'Email is required.');
-        return;
-      }
-
-      if (!password) {
-        Alert.alert('Missing password', 'Password is required.');
-        return;
-      }
-
-      if (password.length < 6) {
-        Alert.alert('Weak password', 'Password must be at least 6 characters.');
+        showBanner('Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.', 'error');
         return;
       }
 
       if (mode === 'signIn') {
-        await signInWithEmail(trimmedEmail, password);
+        await signInWithEmail(trimmedEmail, passwordValue);
       } else {
-        if (password !== confirmPassword) {
-          Alert.alert('Password mismatch', 'Confirm password must match.');
-          return;
-        }
-        await signUpWithEmail(trimmedEmail, password);
-        await refreshAppState();
-        Alert.alert('Account created', 'Sign in with your credentials, then complete baby onboarding.');
+        await signUpWithEmail(trimmedEmail, passwordValue);
+        showBanner('Account created. Sign in, then complete onboarding.', 'success');
         setMode('signIn');
       }
       await refreshSession();
     } catch (error: any) {
-      Alert.alert('Auth failed', error?.message ?? 'Unknown error');
+      showBanner(formatAuthErrorMessage(error, mode), 'error');
     } finally {
       setBusy(false);
     }
@@ -84,10 +157,7 @@ export const AuthScreen = () => {
   const handleGoogleOAuth = async () => {
     try {
       if (!isSupabaseConfigured) {
-        Alert.alert(
-          'Supabase not configured',
-          'Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.',
-        );
+        showBanner('Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.', 'error');
         return;
       }
       setOauthBusy(true);
@@ -97,10 +167,10 @@ export const AuthScreen = () => {
     } catch (error: any) {
       const message = error?.message ?? 'Sign-in failed.';
       if (/canceled/i.test(message)) {
-        Alert.alert('Sign-in canceled', 'Authentication was canceled.');
+        showBanner('Authentication was canceled.', 'info');
         return;
       }
-      Alert.alert('Google OAuth failed', message);
+      showBanner(message, 'error');
     } finally {
       setOauthBusy(false);
     }
@@ -113,37 +183,24 @@ export const AuthScreen = () => {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }, theme.shadows.level2]}>
-            <View style={[styles.modeRow, { backgroundColor: theme.colors.neutral100 }]}>
-              <Pressable
-                style={[styles.modeButton, mode === 'signIn' && styles.modeButtonActive, mode === 'signIn' && { backgroundColor: theme.colors.surface }]}
-                onPress={() => setMode('signIn')}
-              >
-                <Text style={[styles.modeText, { color: theme.colors.textMuted }, mode === 'signIn' && styles.modeTextActive, mode === 'signIn' && { color: theme.colors.textPrimary }]}>
-                  Log in
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modeButton, mode === 'signUp' && styles.modeButtonActive, mode === 'signUp' && { backgroundColor: theme.colors.surface }]}
-                onPress={() => setMode('signUp')}
-              >
-                <Text style={[styles.modeText, { color: theme.colors.textMuted }, mode === 'signUp' && styles.modeTextActive, mode === 'signUp' && { color: theme.colors.textPrimary }]}>
-                  Create Account
-                </Text>
-              </Pressable>
-            </View>
+            {banner ? <ToastBanner kind={banner.kind} message={banner.message} onDismiss={() => setBanner(null)} /> : null}
 
             <Text style={[styles.title, { color: theme.colors.textPrimary }, isSignUp && styles.titleCompact]}>{mode === 'signIn' ? 'Log in' : 'Create Account'}</Text>
-            <Text style={[styles.subtitle, { color: theme.colors.textSecondary }, isSignUp && styles.subtitleCompact]}>
-              {mode === 'signIn'
-                ? 'Enter your email and password to securely access your account.'
-                : 'Create your account first. Baby onboarding comes next on its own screen.'}
-            </Text>
 
-            <View style={[styles.inputWrap, isSignUp && styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.inputWrap,
+                isSignUp && styles.inputWrapCompact,
+                { backgroundColor: theme.colors.surface, borderColor: fieldErrors.email ? theme.colors.error : theme.colors.border },
+              ]}
+            >
               <Ionicons name="mail-outline" size={18} color={theme.colors.textMuted} />
               <TextInput
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  clearFieldError('email');
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 placeholder="Email address"
@@ -151,12 +208,22 @@ export const AuthScreen = () => {
                 style={[styles.inputNative, { color: theme.colors.textPrimary }]}
               />
             </View>
+            {fieldErrors.email ? <Text style={[styles.fieldError, { color: theme.colors.error }]}>{fieldErrors.email}</Text> : null}
 
-            <View style={[styles.inputWrap, isSignUp && styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.inputWrap,
+                isSignUp && styles.inputWrapCompact,
+                { backgroundColor: theme.colors.surface, borderColor: fieldErrors.password ? theme.colors.error : theme.colors.border },
+              ]}
+            >
               <Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />
               <TextInput
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  clearFieldError('password');
+                }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 placeholder="Password"
@@ -167,13 +234,28 @@ export const AuthScreen = () => {
                 <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={theme.colors.textMuted} />
               </Pressable>
             </View>
+            {fieldErrors.password ? (
+              <Text style={[styles.fieldError, { color: theme.colors.error }]}>{fieldErrors.password}</Text>
+            ) : null}
 
             {isSignUp ? (
-              <View style={[styles.inputWrap, styles.inputWrapCompact, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+              <View
+                style={[
+                  styles.inputWrap,
+                  styles.inputWrapCompact,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: fieldErrors.confirmPassword ? theme.colors.error : theme.colors.border,
+                  },
+                ]}
+              >
                 <Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />
                 <TextInput
                   value={confirmPassword}
-                  onChangeText={setConfirmPassword}
+                  onChangeText={(value) => {
+                    setConfirmPassword(value);
+                    clearFieldError('confirmPassword');
+                  }}
                   secureTextEntry={!showConfirmPassword}
                   autoCapitalize="none"
                   placeholder="Confirm password"
@@ -184,6 +266,9 @@ export const AuthScreen = () => {
                   <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={theme.colors.textMuted} />
                 </Pressable>
               </View>
+            ) : null}
+            {isSignUp && fieldErrors.confirmPassword ? (
+              <Text style={[styles.fieldError, { color: theme.colors.error }]}>{fieldErrors.confirmPassword}</Text>
             ) : null}
 
             {mode === 'signIn' ? (
@@ -200,7 +285,7 @@ export const AuthScreen = () => {
                   </View>
                   <Text style={[styles.utilityText, { color: theme.colors.textPrimary }]}>Remember me</Text>
                 </Pressable>
-                <Pressable onPress={() => Alert.alert('Not available yet', 'Forgot password flow is not implemented yet.')}>
+                <Pressable onPress={() => showBanner('Forgot password flow is not available yet.', 'info')}>
                   <Text style={[styles.utilityLink, { color: theme.colors.primary }]}>Forgot Password</Text>
                 </Pressable>
               </View>
@@ -307,57 +392,19 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     borderWidth: 1,
   },
-  modeRow: {
-    flexDirection: 'row',
-    borderRadius: 999,
-    padding: 4,
-    marginBottom: 20,
-  },
-  modeButton: {
-    flex: 1,
-    borderRadius: 999,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  modeButtonActive: {
-    backgroundColor: '#ffffff',
-  },
-  modeText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  modeTextActive: {
-    fontWeight: '700',
-  },
   title: {
     fontSize: 32,
     lineHeight: 40,
     textAlign: 'center',
     fontWeight: '700',
     letterSpacing: -0.3,
-    marginBottom: 8,
-  },
-  subtitle: {
-    textAlign: 'center',
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '400',
-    letterSpacing: 0,
-    marginBottom: 18,
-    paddingHorizontal: 6,
+    marginBottom: 12,
   },
   titleCompact: {
     fontSize: 26,
     lineHeight: 34,
     letterSpacing: -0.2,
-    marginBottom: 6,
-  },
-  subtitleCompact: {
-    fontSize: 14,
-    lineHeight: 19,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   inputWrap: {
     height: 54,
@@ -372,6 +419,15 @@ const styles = StyleSheet.create({
   inputWrapCompact: {
     height: 48,
     marginBottom: 8,
+  },
+  fieldError: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    marginTop: -2,
+    marginBottom: 8,
+    marginLeft: 6,
+    letterSpacing: 0.2,
   },
   inputNative: {
     flex: 1,

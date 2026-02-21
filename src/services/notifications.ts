@@ -18,6 +18,11 @@ export type QuietHours = {
   allowDuringQuietHours: boolean;
 };
 
+export type BabyNotificationIdentity = {
+  name?: string | null;
+  photoUri?: string | null;
+};
+
 const inQuietHours = (date: Date, quietHours: QuietHours) => {
   if (quietHours.allowDuringQuietHours) return false;
   if (!quietHours.start || !quietHours.end) return false;
@@ -70,6 +75,7 @@ export const scheduleNextFeedReminder = async (
   lastFeedTime: string,
   intervalHours: number,
   quietHours: QuietHours,
+  identity?: BabyNotificationIdentity,
 ) => {
   await cancelReminder();
 
@@ -85,12 +91,21 @@ export const scheduleNextFeedReminder = async (
     await Notifications.setNotificationCategoryAsync('feed-reminder', []);
   }
 
+  const normalizedName = identity?.name?.trim() || 'Baby';
+  const avatar = normalizedName.charAt(0).toUpperCase();
+  const content: Notifications.NotificationContentInput = {
+    title: `${avatar} ${normalizedName}`,
+    subtitle: 'Feeding reminder',
+    body: `Time to log ${normalizedName}'s next feed.`,
+    sound: true,
+  };
+
+  if (identity?.photoUri && Platform.OS === 'ios') {
+    (content as any).attachments = [{ identifier: 'baby-photo', url: identity.photoUri }];
+  }
+
   const id = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: 'BabyLog reminder',
-      body: 'Time to log the next feed.',
-      sound: true,
-    },
+    content,
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: triggerDate,

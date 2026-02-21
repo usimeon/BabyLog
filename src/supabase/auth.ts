@@ -81,9 +81,30 @@ export const signOut = async () => {
   if (error) throw error;
 };
 
+export type DeleteAccountResult = 'account_deleted';
+
+const isMissingDeleteFunctionError = (error: any) => {
+  const message = String(error?.message ?? '').toLowerCase();
+  const code = String(error?.code ?? '');
+  return code === 'PGRST202' || message.includes('could not find the function public.delete_my_account');
+};
+
+export const deleteMyAccount = async (): Promise<DeleteAccountResult> => {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { error } = await supabase.rpc('delete_my_account');
+  if (!error) {
+    return 'account_deleted';
+  }
+
+  if (isMissingDeleteFunctionError(error)) {
+    throw new Error('Account deletion is not enabled on this server yet. Apply the latest Supabase migration and try again.');
+  }
+
+  throw error;
+};
+
 export const getCurrentSession = async () => {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   return data.session;
 };
-

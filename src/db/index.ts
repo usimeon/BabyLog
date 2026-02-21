@@ -1,4 +1,3 @@
-import { getOrCreateDefaultBaby } from './babyRepo';
 import { migrate } from './migrations';
 import {
   getAmountUnit,
@@ -17,7 +16,6 @@ let initialized = false;
 export const initDatabase = async () => {
   if (initialized) return;
   await migrate();
-  await getOrCreateDefaultBaby();
 
   const amount = await getAmountUnit();
   if (!amount) await setAmountUnit('ml');

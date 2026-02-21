@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../components/ui';
 import { calculateFeedSummary } from '../db/feedRepo';
 import { useAppContext } from '../context/AppContext';
@@ -13,11 +14,17 @@ import { SyncBanner } from '../components/SyncBanner';
 import { getRoutineSuggestions } from '../services/routineSuggestions';
 import { getAiDailyInsights, mergeDailySuggestions } from '../services/aiInsights';
 import { AiSuggestion } from '../types/ai';
+import { AppTheme } from '../theme/designSystem';
+import { useAppTheme } from '../theme/useAppTheme';
 
 export const TodayScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   const { babyId, reminderSettings, amountUnit, syncNow, syncState, syncError, lastSyncAt, supabaseEnabled, dataVersion } =
     useAppContext();
+
   const [summary, setSummary] = useState<FeedSummary>({
     lastFeedTime: undefined as string | undefined,
     nextReminderTime: undefined as string | undefined,
@@ -32,6 +39,7 @@ export const TodayScreen = () => {
       getRoutineSuggestions(babyId),
       getAiDailyInsights(babyId),
     ]);
+
     setSummary(nextSummary);
     setSuggestions(mergeDailySuggestions(nextRuleSuggestions, nextAiInsights, 4));
   }, [babyId, reminderSettings.intervalHours]);
@@ -40,7 +48,7 @@ export const TodayScreen = () => {
     useCallback(() => {
       load();
       syncNow();
-    }, [load]),
+    }, [load, syncNow]),
   );
 
   React.useEffect(() => {
@@ -48,42 +56,47 @@ export const TodayScreen = () => {
   }, [dataVersion, load]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}> 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Add Entry</Text>
-          <Text style={styles.heroSubtitle}>Log feed, growth, temperature, diaper, meds, or milestones.</Text>
-          <Pressable style={styles.logButton} onPress={() => navigation.navigate('AddEntry')}>
+        <View style={[styles.hero, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
+          <View style={styles.heroHead}>
+            <View style={[styles.heroIconWrap, { backgroundColor: theme.colors.primarySoft }]}> 
+              <Ionicons name="add-circle-outline" size={20} color={theme.colors.primary} />
+            </View>
+            <View style={styles.heroCopy}>
+              <Text style={[styles.heroTitle, { color: theme.colors.textPrimary }]}>Add Entry</Text>
+              <Text style={[styles.heroSubtitle, { color: theme.colors.textSecondary }]}>Log feed, growth, temperature, diaper, medication, or milestone.</Text>
+            </View>
+          </View>
+          <Pressable style={[styles.logButton, { backgroundColor: theme.colors.primary }]} onPress={() => navigation.navigate('AddEntry')}>
             <Text style={styles.logButtonText}>Log</Text>
           </Pressable>
         </View>
 
-        <SyncBanner
-          syncState={syncState}
-          syncError={syncError}
-          lastSyncAt={lastSyncAt}
-          enabled={supabaseEnabled}
-        />
+        <SyncBanner syncState={syncState} syncError={syncError} lastSyncAt={lastSyncAt} enabled={supabaseEnabled} />
 
         <Card title="Today Snapshot">
-          <Text style={styles.valueLabel}>Last feed</Text>
-          <Text style={styles.value}>{formatTime(summary.lastFeedTime)}</Text>
+          <Text style={[styles.valueLabel, { color: theme.colors.textSecondary }]}>Last feed</Text>
+          <Text style={[styles.value, { color: theme.colors.textPrimary }]}>{formatTime(summary.lastFeedTime)}</Text>
 
-          <Text style={styles.valueLabel}>Next reminder</Text>
-          <Text style={styles.value}>{formatTime(summary.nextReminderTime)}</Text>
+          <Text style={[styles.valueLabel, { color: theme.colors.textSecondary }]}>Next reminder</Text>
+          <Text style={[styles.value, { color: theme.colors.textPrimary }]}>{formatTime(summary.nextReminderTime)}</Text>
 
-          <Text style={styles.valueLabel}>Total today ({amountUnit})</Text>
-          <Text style={styles.value}>{mlToDisplay(summary.totalAmountTodayMl, amountUnit).toFixed(1)}</Text>
+          <Text style={[styles.valueLabel, { color: theme.colors.textSecondary }]}>Total today ({amountUnit})</Text>
+          <Text style={[styles.value, { color: theme.colors.textPrimary }]}>{mlToDisplay(summary.totalAmountTodayMl, amountUnit).toFixed(1)}</Text>
         </Card>
 
         <Card title="Routine Suggestions">
           {suggestions.map((item) => (
-            <View key={item.id} style={styles.suggestionItem}>
+            <View
+              key={item.id}
+              style={[styles.suggestionItem, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
+            >
               <View style={styles.suggestionHeader}>
-                <Text style={styles.suggestionTitle}>{item.title}</Text>
-                {item.source === 'ai' ? <Text style={styles.aiTag}>AI-assisted</Text> : null}
+                <Text style={[styles.suggestionTitle, { color: theme.colors.textPrimary }]}>{item.title}</Text>
+                {item.source === 'ai' ? <Text style={[styles.aiTag, { color: theme.colors.info, borderColor: theme.colors.info }]}>AI</Text> : null}
               </View>
-              <Text style={styles.suggestionDetail}>{item.detail}</Text>
+              <Text style={[styles.suggestionDetail, { color: theme.colors.textSecondary }]}>{item.detail}</Text>
             </View>
           ))}
         </Card>
@@ -92,52 +105,63 @@ export const TodayScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f5f7fb' },
-  content: { padding: 16, gap: 10 },
-  hero: {
-    backgroundColor: '#e0e7ff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    padding: 14,
-  },
-  heroTitle: { color: '#1e3a8a', fontSize: 22, fontWeight: '800', marginBottom: 4 },
-  heroSubtitle: { color: '#334155', fontSize: 13, marginBottom: 12 },
-  logButton: {
-    backgroundColor: '#F77575',
-    borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logButtonText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  valueLabel: { color: '#6b7280', fontSize: 13, marginTop: 8 },
-  value: { color: '#111827', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  suggestionItem: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 8,
-  },
-  suggestionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  suggestionTitle: { color: '#0f172a', fontWeight: '700', marginBottom: 4 },
-  suggestionDetail: { color: '#334155', fontSize: 13 },
-  aiTag: {
-    fontSize: 10,
-    color: '#1d4ed8',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    backgroundColor: '#eff6ff',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    overflow: 'hidden',
-  },
-});
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
+    safe: { flex: 1 },
+    content: { padding: theme.spacing[4], gap: theme.spacing[2] },
+    hero: {
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      padding: theme.spacing[4],
+      gap: theme.spacing[3],
+    },
+    heroHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing[3],
+    },
+    heroIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    heroCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    heroTitle: { ...theme.typography.h5, fontWeight: '800' },
+    heroSubtitle: { ...theme.typography.bodySm },
+    logButton: {
+      borderRadius: theme.radius.md,
+      paddingVertical: theme.spacing[3],
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    logButtonText: {
+      color: '#FFFFFF',
+      ...theme.typography.button,
+      fontWeight: '700',
+    },
+    valueLabel: { ...theme.typography.caption, marginTop: theme.spacing[2] },
+    value: { ...theme.typography.h4, fontWeight: '800', marginBottom: theme.spacing[1] },
+    suggestionItem: {
+      borderWidth: 1,
+      borderRadius: theme.radius.md,
+      padding: theme.spacing[3],
+      marginBottom: theme.spacing[2],
+    },
+    suggestionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing[2] },
+    suggestionTitle: { ...theme.typography.bodyLg, fontWeight: '700', marginBottom: theme.spacing[1] },
+    suggestionDetail: { ...theme.typography.bodySm },
+    aiTag: {
+      ...theme.typography.caption,
+      borderWidth: 1,
+      borderRadius: theme.radius.full,
+      paddingHorizontal: theme.spacing[2],
+      paddingVertical: 2,
+      overflow: 'hidden',
+      fontWeight: '700',
+    },
+  });

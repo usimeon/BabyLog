@@ -12,6 +12,7 @@ export interface BabyProfile {
   id: string;
   name: string;
   birthdate?: string | null;
+  photo_uri?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;

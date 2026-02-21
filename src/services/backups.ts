@@ -1,4 +1,3 @@
-import { Alert } from 'react-native';
 import { BackupSettings } from '../types/models';
 
 const isDue = (lastBackupAt: string | null | undefined, intervalDays: number) => {
@@ -9,7 +8,7 @@ const isDue = (lastBackupAt: string | null | undefined, intervalDays: number) =>
 
 export const runBackupNow = async (settings: BackupSettings, options?: { silent?: boolean }) => {
   if (!options?.silent) {
-    Alert.alert('Backup unavailable', 'Backup exports are disabled in this lightweight build.');
+    throw new Error('Backup exports are disabled in this lightweight build.');
   }
   return settings.lastBackupAt ?? null;
 };

@@ -140,6 +140,54 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_milestones_dirty ON milestones (dirty);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_babies_dirty ON babies (dirty);
+      CREATE INDEX IF NOT EXISTS idx_feed_events_baby ON feed_events (baby_id);
+      CREATE INDEX IF NOT EXISTS idx_measurements_baby ON measurements (baby_id);
+      CREATE INDEX IF NOT EXISTS idx_temperature_logs_baby ON temperature_logs (baby_id);
+      CREATE INDEX IF NOT EXISTS idx_diaper_logs_baby ON diaper_logs (baby_id);
+      CREATE INDEX IF NOT EXISTS idx_medication_logs_baby ON medication_logs (baby_id);
+      CREATE INDEX IF NOT EXISTS idx_milestones_baby ON milestones (baby_id);
+
+      DELETE FROM feed_events
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+
+      DELETE FROM measurements
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+
+      DELETE FROM temperature_logs
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+
+      DELETE FROM diaper_logs
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+
+      DELETE FROM medication_logs
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+
+      DELETE FROM milestones
+      WHERE baby_id IS NULL
+         OR trim(baby_id) = ''
+         OR baby_id NOT IN (SELECT id FROM babies);
+    `,
+  },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE babies ADD COLUMN photo_uri TEXT;
+    `,
+  },
 ];
 
 export const migrate = async () => {

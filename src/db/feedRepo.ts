@@ -2,6 +2,14 @@ import { FeedEvent, FeedSummary } from '../types/models';
 import { createId } from '../utils/id';
 import { addHours, endOfDay, nowIso, startOfDay } from '../utils/time';
 import { getAll, getOne, runSql } from './client';
+import {
+  assertNoDuplicateRow,
+  ensureBabyExists,
+  ensureRecordForUpdate,
+  normalizeIsoTimestamp,
+  normalizeNullableNumberInRange,
+  normalizeOptionalText,
+} from './repoValidation';
 import { averageIntervalHoursFromTimestamps, intervalTrendPointsFromAscending } from './feedAnalytics';
 
 export type FeedInput = {
@@ -13,7 +21,56 @@ export type FeedInput = {
   notes?: string | null;
 };
 
+const FEED_TYPES: FeedEvent['type'][] = ['breast', 'bottle', 'formula', 'solids'];
+const FEED_SIDES: FeedEvent['side'][] = ['left', 'right', 'both', 'none'];
+
+const normalizeFeedInput = (input: FeedInput): FeedInput => {
+  const timestamp = normalizeIsoTimestamp(input.timestamp);
+  if (!FEED_TYPES.includes(input.type)) {
+    throw new Error('Feed type is invalid.');
+  }
+
+  const nextSide: FeedEvent['side'] = input.type === 'solids' ? 'none' : input.side;
+  if (!FEED_SIDES.includes(nextSide)) {
+    throw new Error('Feed side is invalid.');
+  }
+
+  const amountMl = normalizeNullableNumberInRange(input.amount_ml, 'Feed amount', 0.1, 2000);
+  const durationMinutes = normalizeNullableNumberInRange(input.duration_minutes, 'Feed duration', 1, 1440, {
+    integer: true,
+  });
+
+  return {
+    timestamp,
+    type: input.type,
+    amount_ml: amountMl,
+    duration_minutes: durationMinutes,
+    side: nextSide,
+    notes: normalizeOptionalText(input.notes, 'Feed notes', 2000),
+  };
+};
+
+const assertNoDuplicateFeed = async (babyId: string, input: FeedInput, excludeId?: string) => {
+  await assertNoDuplicateRow({
+    table: 'feed_events',
+    babyId,
+    timestamp: input.timestamp,
+    columns: [
+      { column: 'type', value: input.type },
+      { column: 'amount_ml', value: input.amount_ml ?? null },
+      { column: 'duration_minutes', value: input.duration_minutes ?? null },
+      { column: 'side', value: input.side },
+    ],
+    excludeId,
+    message: 'A similar feed entry already exists for this timestamp.',
+  });
+};
+
 export const addFeed = async (babyId: string, input: FeedInput) => {
+  const normalizedBabyId = await ensureBabyExists(babyId);
+  const payload = normalizeFeedInput(input);
+  await assertNoDuplicateFeed(normalizedBabyId, payload);
+
   const now = nowIso();
   const id = createId('feed');
   await runSql(
@@ -23,13 +80,13 @@ export const addFeed = async (babyId: string, input: FeedInput) => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1);`,
     [
       id,
-      babyId,
-      input.timestamp,
-      input.type,
-      input.amount_ml ?? null,
-      input.duration_minutes ?? null,
-      input.side,
-      input.notes ?? null,
+      normalizedBabyId,
+      payload.timestamp,
+      payload.type,
+      payload.amount_ml ?? null,
+      payload.duration_minutes ?? null,
+      payload.side,
+      payload.notes ?? null,
       now,
       now,
     ],
@@ -39,24 +96,28 @@ export const addFeed = async (babyId: string, input: FeedInput) => {
 };
 
 export const updateFeed = async (id: string, input: FeedInput) => {
+  const existing = await ensureRecordForUpdate('feed_events', id, ['id', 'baby_id', 'deleted_at']);
+  const payload = normalizeFeedInput(input);
+  await assertNoDuplicateFeed(existing.baby_id, payload, existing.id);
+
   const now = nowIso();
   await runSql(
     `UPDATE feed_events
      SET timestamp = ?, type = ?, amount_ml = ?, duration_minutes = ?, side = ?, notes = ?, updated_at = ?, dirty = 1
      WHERE id = ?;`,
     [
-      input.timestamp,
-      input.type,
-      input.amount_ml ?? null,
-      input.duration_minutes ?? null,
-      input.side,
-      input.notes ?? null,
+      payload.timestamp,
+      payload.type,
+      payload.amount_ml ?? null,
+      payload.duration_minutes ?? null,
+      payload.side,
+      payload.notes ?? null,
       now,
-      id,
+      existing.id,
     ],
   );
 
-  return getFeedById(id);
+  return getFeedById(existing.id);
 };
 
 export const softDeleteFeed = async (id: string) => {
@@ -68,7 +129,10 @@ export const getFeedById = async (id: string) => {
   return getOne<FeedEvent>('SELECT * FROM feed_events WHERE id = ? LIMIT 1;', [id]);
 };
 
-export const listFeeds = async (babyId: string, options?: { type?: string; from?: string; to?: string }) => {
+export const listFeeds = async (
+  babyId: string,
+  options?: { type?: FeedEvent['type'] | 'all'; from?: string; to?: string },
+) => {
   const params: Array<string | number> = [babyId];
   let where = 'baby_id = ? AND deleted_at IS NULL';
 

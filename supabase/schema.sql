@@ -1,4 +1,4 @@
--- BabyLog Supabase schema
+ -- BabyLog Supabase schema
 create extension if not exists pgcrypto;
 
 create table if not exists public.babies (
@@ -6,6 +6,7 @@ create table if not exists public.babies (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   birthdate timestamptz,
+  photo_uri text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   deleted_at timestamptz
@@ -175,3 +176,23 @@ create policy "daily_ai_insights owner read" on public.daily_ai_insights
 for select using (auth.uid() = user_id);
 create policy "daily_ai_insights owner write" on public.daily_ai_insights
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create or replace function public.delete_my_account()
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  requester uuid := auth.uid();
+begin
+  if requester is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  delete from auth.users where id = requester;
+end;
+$$;
+
+revoke all on function public.delete_my_account() from public;
+grant execute on function public.delete_my_account() to authenticated;

@@ -1,9 +1,15 @@
 import { supabase } from './client';
 import { getCurrentSession } from './auth';
-import { getAll, getOne, runSql } from '../db/client';
-import { getOrCreateDefaultBaby } from '../db/babyRepo';
+import { getAll, getOne, runSql, withTransaction } from '../db/client';
+import {
+  clearActiveBabyId,
+  getAuthUserId,
+  getLocalDataOwnerUserId,
+  setAuthUserId,
+  setLastSyncAt,
+  setLocalDataOwnerUserId,
+} from '../db/settingsRepo';
 import { nowIso } from '../utils/time';
-import { setAuthUserId, setLastSyncAt } from '../db/settingsRepo';
 
 type SyncRow = {
   id: string;
@@ -17,6 +23,7 @@ type RemoteBabyRow = {
   user_id: string;
   name: string;
   birthdate?: string | null;
+  photo_uri?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -31,10 +38,138 @@ type SyncTable =
   | 'medication_logs'
   | 'milestones';
 
+type ChildTable = Exclude<SyncTable, 'babies'>;
+
+type DirtyRows = {
+  babies: any[];
+  feed_events: any[];
+  measurements: any[];
+  temperature_logs: any[];
+  diaper_logs: any[];
+  medication_logs: any[];
+  milestones: any[];
+};
+
+const CHILD_TABLES: ChildTable[] = [
+  'feed_events',
+  'measurements',
+  'temperature_logs',
+  'diaper_logs',
+  'medication_logs',
+  'milestones',
+];
+
+const CHUNK_SIZE = 300;
+const MAX_SYNC_RETRIES = 3;
+
+const sleep = async (ms: number) => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const isRetryableError = (error: any) => {
+  const status = Number(error?.status ?? error?.code);
+  if (Number.isFinite(status)) {
+    if ([408, 409, 425, 429].includes(status)) return true;
+    if (status >= 500 && status <= 599) return true;
+  }
+
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('timeout') ||
+    message.includes('temporar') ||
+    message.includes('fetch') ||
+    message.includes('connection')
+  );
+};
+
+const withRetry = async <T>(label: string, operation: () => Promise<T>) => {
+  let attempt = 0;
+  let lastError: unknown;
+
+  while (attempt < MAX_SYNC_RETRIES) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      attempt += 1;
+      if (attempt >= MAX_SYNC_RETRIES || !isRetryableError(error)) {
+        throw error;
+      }
+      console.log(`[sync] retry ${label} attempt ${attempt + 1}`);
+      await sleep(250 * 2 ** (attempt - 1));
+    }
+  }
+
+  throw lastError;
+};
+
+const chunk = <T>(items: T[], size: number): T[][] => {
+  if (items.length <= size) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+};
+
+const upsertInChunks = async (table: string, rows: any[]) => {
+  if (!supabase || !rows.length) return;
+  const chunks = chunk(rows, CHUNK_SIZE);
+  for (const batch of chunks) {
+    const { error } = await supabase.from(table).upsert(batch, { onConflict: 'id' });
+    if (error) throw error;
+  }
+};
+
 const markClean = async (table: SyncTable, ids: string[]) => {
   if (!ids.length) return;
   const placeholders = ids.map(() => '?').join(',');
   await runSql(`UPDATE ${table} SET dirty = 0 WHERE id IN (${placeholders});`, ids);
+};
+
+const readDirtyRows = async (): Promise<DirtyRows> => {
+  const [
+    babies,
+    feedEvents,
+    measurements,
+    temperatures,
+    diapers,
+    medications,
+    milestones,
+  ] = await Promise.all([
+    getAll<any>('SELECT * FROM babies WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM feed_events WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM measurements WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM temperature_logs WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM diaper_logs WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM medication_logs WHERE dirty = 1;'),
+    getAll<any>('SELECT * FROM milestones WHERE dirty = 1;'),
+  ]);
+
+  return {
+    babies,
+    feed_events: feedEvents,
+    measurements,
+    temperature_logs: temperatures,
+    diaper_logs: diapers,
+    medication_logs: medications,
+    milestones,
+  };
+};
+
+const pruneOrphanedDirtyRows = async () => {
+  for (const table of CHILD_TABLES) {
+    await runSql(
+      `DELETE FROM ${table}
+       WHERE dirty = 1
+         AND (
+           baby_id IS NULL
+           OR trim(baby_id) = ''
+           OR baby_id NOT IN (SELECT id FROM babies)
+         );`,
+    );
+  }
 };
 
 const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
@@ -78,7 +213,6 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
       (medicationCount?.count ?? 0) > 0 ||
       (milestoneCount?.count ?? 0) > 0;
 
-    // A reinstall can create a blank local baby before first pull; drop that placeholder to avoid duplicate babies.
     if (!hasData) {
       await runSql('DELETE FROM babies WHERE id = ?;', [baby.id]);
       console.log(`[sync] removed local placeholder baby id=${baby.id}`);
@@ -86,42 +220,54 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
   }
 };
 
+const dropDirtyRowsForMissingBabies = async (babyIds: string[]) => {
+  if (!babyIds.length) return;
+  const placeholders = babyIds.map(() => '?').join(',');
+
+  for (const table of CHILD_TABLES) {
+    await runSql(
+      `DELETE FROM ${table}
+       WHERE dirty = 1
+         AND baby_id IN (${placeholders});`,
+      babyIds,
+    );
+  }
+};
+
 const pushDirtyRows = async (userId: string) => {
   if (!supabase) return;
 
-  const dirtyBabies = await getAll<any>('SELECT * FROM babies WHERE dirty = 1;');
-  const dirtyFeeds = await getAll<any>('SELECT * FROM feed_events WHERE dirty = 1;');
-  const dirtyMeasurements = await getAll<any>('SELECT * FROM measurements WHERE dirty = 1;');
-  const dirtyTemperatures = await getAll<any>('SELECT * FROM temperature_logs WHERE dirty = 1;');
-  const dirtyDiapers = await getAll<any>('SELECT * FROM diaper_logs WHERE dirty = 1;');
-  const dirtyMedications = await getAll<any>('SELECT * FROM medication_logs WHERE dirty = 1;');
-  const dirtyMilestones = await getAll<any>('SELECT * FROM milestones WHERE dirty = 1;');
+  await pruneOrphanedDirtyRows();
+
+  let dirty = await readDirtyRows();
 
   console.log(
-    `[sync] pushing dirty rows babies=${dirtyBabies.length} feeds=${dirtyFeeds.length} measurements=${dirtyMeasurements.length} temps=${dirtyTemperatures.length} diapers=${dirtyDiapers.length} meds=${dirtyMedications.length} milestones=${dirtyMilestones.length}`,
+    `[sync] pushing dirty rows babies=${dirty.babies.length} feeds=${dirty.feed_events.length} measurements=${dirty.measurements.length} temps=${dirty.temperature_logs.length} diapers=${dirty.diaper_logs.length} meds=${dirty.medication_logs.length} milestones=${dirty.milestones.length}`,
   );
 
-  // Ensure remote babies exist for all dirty child rows, even when those baby rows
-  // are not currently marked dirty locally (e.g. after account switches or restores).
   const referencedBabyIds = Array.from(
     new Set(
       [
-        ...dirtyFeeds.map((row) => row.baby_id),
-        ...dirtyMeasurements.map((row) => row.baby_id),
-        ...dirtyTemperatures.map((row) => row.baby_id),
-        ...dirtyDiapers.map((row) => row.baby_id),
-        ...dirtyMedications.map((row) => row.baby_id),
-        ...dirtyMilestones.map((row) => row.baby_id),
+        ...dirty.feed_events.map((row) => row.baby_id),
+        ...dirty.measurements.map((row) => row.baby_id),
+        ...dirty.temperature_logs.map((row) => row.baby_id),
+        ...dirty.diaper_logs.map((row) => row.baby_id),
+        ...dirty.medication_logs.map((row) => row.baby_id),
+        ...dirty.milestones.map((row) => row.baby_id),
       ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
     ),
   );
 
   if (referencedBabyIds.length) {
     const placeholders = referencedBabyIds.map(() => '?').join(',');
-    const referencedBabies = await getAll<any>(
-      `SELECT * FROM babies WHERE id IN (${placeholders}) AND deleted_at IS NULL;`,
-      referencedBabyIds,
-    );
+    const referencedBabies = await getAll<any>(`SELECT * FROM babies WHERE id IN (${placeholders});`, referencedBabyIds);
+    const foundIds = new Set(referencedBabies.map((row) => row.id as string));
+    const missingIds = referencedBabyIds.filter((id) => !foundIds.has(id));
+
+    if (missingIds.length) {
+      await dropDirtyRowsForMissingBabies(missingIds);
+      dirty = await readDirtyRows();
+    }
 
     if (referencedBabies.length) {
       const payload = referencedBabies.map((row) => ({
@@ -129,34 +275,34 @@ const pushDirtyRows = async (userId: string) => {
         user_id: userId,
         name: row.name,
         birthdate: row.birthdate,
+        photo_uri: row.photo_uri ?? null,
         created_at: row.created_at,
         updated_at: row.updated_at,
         deleted_at: row.deleted_at,
       }));
 
-      const { error } = await supabase.from('babies').upsert(payload, { onConflict: 'id' });
-      if (error) throw error;
+      await upsertInChunks('babies', payload);
     }
   }
 
-  if (dirtyBabies.length) {
-    const payload = dirtyBabies.map((row) => ({
+  if (dirty.babies.length) {
+    const payload = dirty.babies.map((row) => ({
       id: row.id,
       user_id: userId,
       name: row.name,
       birthdate: row.birthdate,
+      photo_uri: row.photo_uri ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('babies').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('babies', dirtyBabies.map((x) => x.id));
+    await upsertInChunks('babies', payload);
+    await markClean('babies', dirty.babies.map((x) => x.id));
   }
 
-  if (dirtyFeeds.length) {
-    const payload = dirtyFeeds.map((row) => ({
+  if (dirty.feed_events.length) {
+    const payload = dirty.feed_events.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -171,13 +317,12 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('feed_events').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('feed_events', dirtyFeeds.map((x) => x.id));
+    await upsertInChunks('feed_events', payload);
+    await markClean('feed_events', dirty.feed_events.map((x) => x.id));
   }
 
-  if (dirtyMeasurements.length) {
-    const payload = dirtyMeasurements.map((row) => ({
+  if (dirty.measurements.length) {
+    const payload = dirty.measurements.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -191,13 +336,12 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('measurements').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('measurements', dirtyMeasurements.map((x) => x.id));
+    await upsertInChunks('measurements', payload);
+    await markClean('measurements', dirty.measurements.map((x) => x.id));
   }
 
-  if (dirtyTemperatures.length) {
-    const payload = dirtyTemperatures.map((row) => ({
+  if (dirty.temperature_logs.length) {
+    const payload = dirty.temperature_logs.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -209,13 +353,12 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('temperature_logs').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('temperature_logs', dirtyTemperatures.map((x) => x.id));
+    await upsertInChunks('temperature_logs', payload);
+    await markClean('temperature_logs', dirty.temperature_logs.map((x) => x.id));
   }
 
-  if (dirtyDiapers.length) {
-    const payload = dirtyDiapers.map((row) => ({
+  if (dirty.diaper_logs.length) {
+    const payload = dirty.diaper_logs.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -229,13 +372,12 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('diaper_logs').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('diaper_logs', dirtyDiapers.map((x) => x.id));
+    await upsertInChunks('diaper_logs', payload);
+    await markClean('diaper_logs', dirty.diaper_logs.map((x) => x.id));
   }
 
-  if (dirtyMedications.length) {
-    const payload = dirtyMedications.map((row) => ({
+  if (dirty.medication_logs.length) {
+    const payload = dirty.medication_logs.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -250,13 +392,12 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('medication_logs').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('medication_logs', dirtyMedications.map((x) => x.id));
+    await upsertInChunks('medication_logs', payload);
+    await markClean('medication_logs', dirty.medication_logs.map((x) => x.id));
   }
 
-  if (dirtyMilestones.length) {
-    const payload = dirtyMilestones.map((row) => ({
+  if (dirty.milestones.length) {
+    const payload = dirty.milestones.map((row) => ({
       id: row.id,
       user_id: userId,
       baby_id: row.baby_id,
@@ -269,33 +410,52 @@ const pushDirtyRows = async (userId: string) => {
       deleted_at: row.deleted_at,
     }));
 
-    const { error } = await supabase.from('milestones').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    await markClean('milestones', dirtyMilestones.map((x) => x.id));
+    await upsertInChunks('milestones', payload);
+    await markClean('milestones', dirty.milestones.map((x) => x.id));
   }
 };
 
+const toMs = (value?: string | null) => {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+};
+
+const shouldApplyRemote = (localUpdatedAt?: string | null, remoteUpdatedAt?: string | null) => {
+  const localMs = toMs(localUpdatedAt);
+  const remoteMs = toMs(remoteUpdatedAt);
+  if (localMs === null) return true;
+  if (remoteMs === null) return false;
+  return localMs < remoteMs;
+};
+
 const applyRemoteRow = async (table: SyncTable, row: any) => {
+  if (!row?.id) return;
+
   const local = await getOne<SyncRow>(`SELECT id, updated_at FROM ${table} WHERE id = ? LIMIT 1;`, [row.id]);
-  if (local && new Date(local.updated_at).getTime() >= new Date(row.updated_at).getTime()) {
+  if (local && !shouldApplyRemote(local.updated_at, row.updated_at)) {
     return;
   }
 
   if (table === 'babies') {
     await runSql(
-      `INSERT INTO babies(id, name, birthdate, created_at, updated_at, deleted_at, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, 0)
+      `INSERT INTO babies(id, name, birthdate, photo_uri, created_at, updated_at, deleted_at, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          birthdate = excluded.birthdate,
+         photo_uri = excluded.photo_uri,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at,
          dirty = 0;`,
-      [row.id, row.name, row.birthdate, row.created_at, row.updated_at, row.deleted_at],
+      [row.id, row.name, row.birthdate, row.photo_uri ?? null, row.created_at, row.updated_at, row.deleted_at],
     );
     return;
   }
+
+  if (!row.baby_id) return;
 
   if (table === 'feed_events') {
     await runSql(
@@ -520,69 +680,120 @@ const pullRemoteRows = async (userId: string) => {
   if (medicationErr) throw medicationErr;
   if (milestoneErr) throw milestoneErr;
 
+  const remoteBabies = babies ?? [];
+  const remoteFeeds = feeds ?? [];
+  const remoteMeasurements = measurements ?? [];
+  const remoteTemps = temperatures ?? [];
+  const remoteDiapers = diapers ?? [];
+  const remoteMeds = medications ?? [];
+  const remoteMilestones = milestones ?? [];
+
   console.log(
-    `[sync] pulling remote rows babies=${babies.length} feeds=${feeds.length} measurements=${measurements.length} temps=${temperatures.length} diapers=${diapers.length} meds=${medications.length} milestones=${milestones.length}`,
+    `[sync] pulling remote rows babies=${remoteBabies.length} feeds=${remoteFeeds.length} measurements=${remoteMeasurements.length} temps=${remoteTemps.length} diapers=${remoteDiapers.length} meds=${remoteMeds.length} milestones=${remoteMilestones.length}`,
   );
 
-  for (const baby of babies) await applyRemoteRow('babies', baby);
-  for (const feed of feeds) await applyRemoteRow('feed_events', feed);
-  for (const measurement of measurements) await applyRemoteRow('measurements', measurement);
-  for (const temp of temperatures) await applyRemoteRow('temperature_logs', temp);
-  for (const diaper of diapers) await applyRemoteRow('diaper_logs', diaper);
-  for (const medication of medications) await applyRemoteRow('medication_logs', medication);
-  for (const milestone of milestones) await applyRemoteRow('milestones', milestone);
+  await withTransaction(async () => {
+    for (const baby of remoteBabies) {
+      await applyRemoteRow('babies', baby);
+    }
+
+    const validBabyIds = new Set(remoteBabies.map((baby) => baby.id));
+
+    for (const feed of remoteFeeds) {
+      if (!validBabyIds.has(feed.baby_id)) continue;
+      await applyRemoteRow('feed_events', feed);
+    }
+    for (const measurement of remoteMeasurements) {
+      if (!validBabyIds.has(measurement.baby_id)) continue;
+      await applyRemoteRow('measurements', measurement);
+    }
+    for (const temp of remoteTemps) {
+      if (!validBabyIds.has(temp.baby_id)) continue;
+      await applyRemoteRow('temperature_logs', temp);
+    }
+    for (const diaper of remoteDiapers) {
+      if (!validBabyIds.has(diaper.baby_id)) continue;
+      await applyRemoteRow('diaper_logs', diaper);
+    }
+    for (const medication of remoteMeds) {
+      if (!validBabyIds.has(medication.baby_id)) continue;
+      await applyRemoteRow('medication_logs', medication);
+    }
+    for (const milestone of remoteMilestones) {
+      if (!validBabyIds.has(milestone.baby_id)) continue;
+      await applyRemoteRow('milestones', milestone);
+    }
+  });
 };
 
 const fetchRemoteBabies = async (userId: string): Promise<RemoteBabyRow[]> => {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('babies')
-    .select('id,user_id,name,birthdate,created_at,updated_at,deleted_at')
+    .select('id,user_id,name,birthdate,photo_uri,created_at,updated_at,deleted_at')
     .eq('user_id', userId);
   if (error) throw error;
-  return data as RemoteBabyRow[];
+  return (data ?? []) as RemoteBabyRow[];
 };
 
-const ensureRemoteHasBaby = async (userId: string, remoteBabies: RemoteBabyRow[]) => {
-  if (!supabase) return;
-  if (remoteBabies.length) return;
-  const baby = await getOrCreateDefaultBaby();
-
-  const { error: insertErr } = await supabase.from('babies').insert({
-    id: baby.id,
-    user_id: userId,
-    name: baby.name,
-    birthdate: baby.birthdate,
-    created_at: baby.created_at,
-    updated_at: baby.updated_at,
-    deleted_at: baby.deleted_at,
+const resetLocalDataForUserSwitch = async () => {
+  await withTransaction(async () => {
+    for (const table of CHILD_TABLES) {
+      await runSql(`DELETE FROM ${table};`);
+    }
+    await runSql('DELETE FROM babies;');
   });
-  if (insertErr) throw insertErr;
-  await runSql('UPDATE babies SET dirty = 0 WHERE id = ?;', [baby.id]);
+
+  await clearActiveBabyId();
+  await setLastSyncAt(null);
 };
 
-let syncInProgress = false;
+const ensureLocalDataOwner = async (userId: string) => {
+  const [owner, previousAuthUserId] = await Promise.all([getLocalDataOwnerUserId(), getAuthUserId()]);
+  const discoveredOwner = owner ?? previousAuthUserId;
 
-export const syncAll = async () => {
-  if (!supabase || syncInProgress) return;
+  if (discoveredOwner && discoveredOwner !== userId) {
+    console.log(`[sync] local data owner changed ${discoveredOwner} -> ${userId}, resetting local sync tables`);
+    await resetLocalDataForUserSwitch();
+  }
+
+  if (discoveredOwner !== userId) {
+    await setLocalDataOwnerUserId(userId);
+  }
+};
+
+const runSync = async () => {
+  if (!supabase) return;
 
   const session = await getCurrentSession();
   if (!session?.user?.id) return;
 
-  syncInProgress = true;
+  const userId = session.user.id;
+  console.log('[sync] start');
 
-  try {
-    const userId = session.user.id;
-    console.log('[sync] start');
-    await setAuthUserId(userId);
-    const remoteBabies = await fetchRemoteBabies(userId);
-    await removeLocalPlaceholderBabies(remoteBabies);
-    await ensureRemoteHasBaby(userId, remoteBabies);
-    await pushDirtyRows(userId);
-    await pullRemoteRows(userId);
-    await setLastSyncAt(nowIso());
-    console.log('[sync] complete');
-  } finally {
-    syncInProgress = false;
-  }
+  await ensureLocalDataOwner(userId);
+  await setAuthUserId(userId);
+
+  const remoteBabies = await withRetry('fetch remote babies', () => fetchRemoteBabies(userId));
+  await removeLocalPlaceholderBabies(remoteBabies);
+
+  await withRetry('push dirty rows', () => pushDirtyRows(userId));
+  await withRetry('pull remote rows', () => pullRemoteRows(userId));
+
+  await setLocalDataOwnerUserId(userId);
+  await setLastSyncAt(nowIso());
+  console.log('[sync] complete');
+};
+
+let syncPromise: Promise<void> | null = null;
+
+export const syncAll = async () => {
+  if (!supabase) return;
+  if (syncPromise) return syncPromise;
+
+  syncPromise = runSync().finally(() => {
+    syncPromise = null;
+  });
+
+  return syncPromise;
 };

@@ -1,6 +1,7 @@
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
+import { Platform } from 'react-native';
 import { BackupDestination } from '../types/models';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -16,15 +17,64 @@ type TokenRecord = {
 const GOOGLE_TOKEN_KEY = 'backup_google_drive_token';
 const DROPBOX_TOKEN_KEY = 'backup_dropbox_token';
 
-const googleClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID ?? '').trim();
+const googleLegacyClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID ?? '').trim();
+const googleIosClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_IOS_CLIENT_ID ?? '').trim();
+const googleAndroidClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_ANDROID_CLIENT_ID ?? '').trim();
+const googleWebClientId = (process.env.EXPO_PUBLIC_GOOGLE_DRIVE_WEB_CLIENT_ID ?? '').trim();
 const dropboxClientId = (process.env.EXPO_PUBLIC_DROPBOX_APP_KEY ?? '').trim();
 const oauthRedirectScheme = (process.env.EXPO_PUBLIC_OAUTH_REDIRECT_SCHEME ?? 'com.example.babylog').trim();
 const googleClientSuffix = '.apps.googleusercontent.com';
 
-const getGoogleRedirectUri = () => {
-  if (!googleClientId || !googleClientId.endsWith(googleClientSuffix)) return null;
-  const appId = googleClientId.slice(0, -googleClientSuffix.length);
+const firstNonEmpty = (...values: string[]) => values.find((value) => value.length > 0) ?? '';
+
+const getGoogleClientIdForPlatform = () => {
+  if (Platform.OS === 'ios') return firstNonEmpty(googleIosClientId, googleLegacyClientId);
+  if (Platform.OS === 'android') return firstNonEmpty(googleAndroidClientId, googleLegacyClientId);
+  return firstNonEmpty(googleWebClientId, googleLegacyClientId);
+};
+
+const getGoogleNativeRedirectUri = (clientId: string) => {
+  if (!clientId.endsWith(googleClientSuffix)) return null;
+  const appId = clientId.slice(0, -googleClientSuffix.length);
   return `com.googleusercontent.apps.${appId}:/oauth2redirect`;
+};
+
+const getGoogleAuthConfig = () => {
+  const clientId = getGoogleClientIdForPlatform();
+  if (!clientId) {
+    if (Platform.OS === 'ios') {
+      throw new Error('Missing EXPO_PUBLIC_GOOGLE_DRIVE_IOS_CLIENT_ID.');
+    }
+    if (Platform.OS === 'android') {
+      throw new Error('Missing EXPO_PUBLIC_GOOGLE_DRIVE_ANDROID_CLIENT_ID.');
+    }
+    throw new Error('Missing Google Drive OAuth client ID.');
+  }
+
+  if (Platform.OS === 'web') {
+    const redirectUri = AuthSession.makeRedirectUri({ path: 'oauth2redirect' });
+    return { clientId, redirectUri };
+  }
+
+  const redirectUri = getGoogleNativeRedirectUri(clientId);
+  if (!redirectUri) {
+    throw new Error('Invalid Google OAuth client ID format.');
+  }
+  return { clientId, redirectUri };
+};
+
+const mapGoogleAuthError = (message: string) => {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("custom scheme uris are not allowed for 'web' client type")) {
+    if (Platform.OS === 'ios') {
+      return 'Google Drive is configured with a Web OAuth client. Set EXPO_PUBLIC_GOOGLE_DRIVE_IOS_CLIENT_ID to an iOS OAuth client ID and rebuild the app.';
+    }
+    if (Platform.OS === 'android') {
+      return 'Google Drive is configured with a Web OAuth client. Set EXPO_PUBLIC_GOOGLE_DRIVE_ANDROID_CLIENT_ID to an Android OAuth client ID and rebuild the app.';
+    }
+    return 'Google Drive OAuth configuration is invalid for this platform.';
+  }
+  return message;
 };
 
 const getDropboxRedirectUri = () => `${oauthRedirectScheme}://oauth2redirect`;
@@ -58,12 +108,10 @@ export const getCloudProviderConnected = async (provider: Provider) => {
 
 const makeAuthRequest = async (provider: Provider) => {
   if (provider === 'google_drive') {
-    const redirectUri = getGoogleRedirectUri();
-    if (!googleClientId) throw new Error('Missing EXPO_PUBLIC_GOOGLE_DRIVE_CLIENT_ID');
-    if (!redirectUri) throw new Error('Invalid Google client ID format.');
+    const { clientId, redirectUri } = getGoogleAuthConfig();
 
     const request = new AuthSession.AuthRequest({
-      clientId: googleClientId,
+      clientId,
       redirectUri,
       responseType: AuthSession.ResponseType.Code,
       scopes: ['https://www.googleapis.com/auth/drive.file'],
@@ -82,15 +130,20 @@ const makeAuthRequest = async (provider: Provider) => {
     await request.makeAuthUrlAsync(discovery);
     const result = await request.promptAsync(discovery);
 
-    if (result.type !== 'success' || !result.params.code) {
+    if (result.type !== 'success') {
       throw new Error('Google Drive auth cancelled.');
     }
+    if (result.params.error) {
+      const details = result.params.error_description ?? result.params.error;
+      throw new Error(mapGoogleAuthError(details));
+    }
+    if (!result.params.code) throw new Error('Google Drive auth cancelled.');
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: googleClientId,
+        client_id: clientId,
         grant_type: 'authorization_code',
         code: result.params.code,
         redirect_uri: redirectUri,
@@ -99,7 +152,8 @@ const makeAuthRequest = async (provider: Provider) => {
     });
 
     if (!tokenRes.ok) {
-      throw new Error('Failed to exchange Google auth code.');
+      const body = await tokenRes.text();
+      throw new Error(`Failed to exchange Google auth code: ${body || tokenRes.status}`);
     }
 
     const tokenData = (await tokenRes.json()) as {
@@ -175,6 +229,7 @@ const refreshIfNeeded = async (provider: Provider, token: TokenRecord): Promise<
   if (!token.refreshToken) return token;
 
   if (provider === 'google_drive') {
+    const googleClientId = getGoogleClientIdForPlatform();
     if (!googleClientId) return token;
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',

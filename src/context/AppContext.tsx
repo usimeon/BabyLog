@@ -1,8 +1,16 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { initDatabase } from '../db';
-import { createBaby, getBabyById, getOrCreateDefaultBaby, upsertBaby } from '../db/babyRepo';
+import {
+  createBaby,
+  getBabyById,
+  getOrCreateDefaultBaby,
+  isBabyNameTaken,
+  listBabies,
+  softDeleteBaby,
+  upsertBaby,
+} from '../db/babyRepo';
 import {
   getActiveBabyId,
   getAmountUnit,
@@ -12,14 +20,14 @@ import {
   getSmartAlertSettings,
   getTempUnit,
   getWeightUnit,
-  setAuthUserId,
+  saveBackupSettings,
+  saveReminderSettings,
+  saveSmartAlertSettings,
   setActiveBabyId,
   setAmountUnit,
-  saveBackupSettings,
-  saveSmartAlertSettings,
+  setAuthUserId,
   setTempUnit,
   setWeightUnit,
-  saveReminderSettings,
 } from '../db/settingsRepo';
 import { BackupSettings, ReminderSettings, SmartAlertSettings } from '../types/models';
 import { isSupabaseConfigured, supabase } from '../supabase/client';
@@ -32,6 +40,8 @@ import { postAuthEnsureBabyProfile } from '../services/postAuthEnsureBabyProfile
 type AppContextValue = {
   initialized: boolean;
   babyId: string;
+  babyName: string;
+  babies: Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>;
   amountUnit: 'ml' | 'oz';
   weightUnit: 'kg' | 'lb';
   tempUnit: 'c' | 'f';
@@ -46,6 +56,7 @@ type AppContextValue = {
   dataVersion: number;
   hasRequiredBabyProfile: boolean;
   refreshAppState: () => Promise<void>;
+  switchActiveBaby: (babyId: string) => Promise<void>;
   updateAmountUnit: (unit: 'ml' | 'oz') => Promise<void>;
   updateWeightUnit: (unit: 'kg' | 'lb') => Promise<void>;
   updateTempUnit: (unit: 'c' | 'f') => Promise<void>;
@@ -55,8 +66,8 @@ type AppContextValue = {
   refreshSession: () => Promise<void>;
   syncNow: () => Promise<void>;
   bumpDataVersion: () => void;
-  saveRequiredBabyProfile: (babyName: string, babyBirthdate: Date) => Promise<void>;
-  createNewBabyProfile: (babyName: string, babyBirthdate: Date) => Promise<string>;
+  saveRequiredBabyProfile: (babyName: string, babyBirthdate: Date, babyPhotoUri?: string | null) => Promise<string>;
+  createNewBabyProfile: (babyName: string, babyBirthdate: Date, babyPhotoUri?: string | null) => Promise<string>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -84,157 +95,383 @@ const defaultBackupSettings: BackupSettings = {
   lastBackupAt: null,
 };
 
+const normalizeName = (name?: string | null) => {
+  const trimmed = name?.trim();
+  return trimmed && trimmed.length ? trimmed : 'My Baby';
+};
+
+const isPlaceholderBaby = (baby: { name?: string | null; birthdate?: string | null }) => {
+  const normalizedName = baby.name?.trim().toLowerCase() ?? '';
+  return normalizedName === 'my baby' && !baby.birthdate;
+};
+
+const toBirthdateIso = (birthdate: Date) =>
+  new Date(
+    Date.UTC(birthdate.getFullYear(), birthdate.getMonth(), birthdate.getDate(), 12, 0, 0, 0),
+  ).toISOString();
+
+type MinimalBaby = { id: string; name: string; birthdate?: string | null; photo_uri?: string | null };
+
+const pickPreferredBaby = (babyList: MinimalBaby[], activeBabyId: string | null) => {
+  if (!babyList.length) return null;
+
+  const active = activeBabyId ? babyList.find((baby) => baby.id === activeBabyId) : null;
+  if (active) return active;
+
+  const complete = babyList.find((baby) => postAuthEnsureBabyProfile(baby));
+  if (complete) return complete;
+
+  return babyList[0];
+};
+
 export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [initialized, setInitialized] = useState(false);
   const [babyId, setBabyId] = useState('');
+  const [babyName, setBabyName] = useState('My Baby');
+  const [babies, setBabies] = useState<Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>>([]);
   const [amountUnit, setAmountUnitState] = useState<'ml' | 'oz'>('ml');
   const [weightUnit, setWeightUnitState] = useState<'kg' | 'lb'>('lb');
   const [tempUnit, setTempUnitState] = useState<'c' | 'f'>('f');
   const [reminderSettings, setReminderSettingsState] = useState<ReminderSettings>(defaultReminder);
   const [smartAlertSettings, setSmartAlertSettingsState] = useState<SmartAlertSettings>(defaultSmartAlerts);
   const [backupSettings, setBackupSettingsState] = useState<BackupSettings>(defaultBackupSettings);
-  const [session, setSession] = useState<Session | null>(null);
+  const [sessionState, setSessionState] = useState<Session | null>(null);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [hasRequiredBabyProfile, setHasRequiredBabyProfile] = useState(false);
 
-  const refreshSession = async () => {
-    const next = await getCurrentSession();
-    setSession(next);
-    await setAuthUserId(next?.user.id ?? null);
-  };
+  const mountedRef = useRef(true);
+  const sessionRef = useRef<Session | null>(null);
+  const syncTaskRef = useRef<Promise<void> | null>(null);
+  const switchQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const authQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
-  const refreshAppState = async () => {
-    const configuredActiveBabyId = await getActiveBabyId();
-    const activeBaby = configuredActiveBabyId ? await getBabyById(configuredActiveBabyId) : null;
-    const baby = activeBaby && !activeBaby.deleted_at ? activeBaby : await getOrCreateDefaultBaby();
-    const nextAmountUnit = (await getAmountUnit()) as 'ml' | 'oz';
-    const nextWeightUnit = (await getWeightUnit()) as 'kg' | 'lb';
-    const nextTempUnit = (await getTempUnit()) as 'c' | 'f';
-    const nextReminder = await getReminderSettings();
-    const nextSmartAlerts = await getSmartAlertSettings();
-    const nextBackupSettings = await getBackupSettings();
-    const nextLastSyncAt = await getLastSyncAt();
+  const setSession = useCallback((next: Session | null) => {
+    sessionRef.current = next;
+    if (mountedRef.current) {
+      setSessionState(next);
+    }
+  }, []);
 
-    if (!configuredActiveBabyId || configuredActiveBabyId !== baby.id) {
-      await setActiveBabyId(baby.id);
+  const loadAppState = useCallback(async (sessionSnapshot: Session | null) => {
+    const [configuredActiveBabyId, nextAmountUnit, nextWeightUnit, nextTempUnit, nextReminder, nextSmartAlerts, nextBackupSettings, nextLastSyncAt] =
+      await Promise.all([
+        getActiveBabyId(),
+        getAmountUnit(),
+        getWeightUnit(),
+        getTempUnit(),
+        getReminderSettings(),
+        getSmartAlertSettings(),
+        getBackupSettings(),
+        getLastSyncAt(),
+      ]);
+
+    let babyList = await listBabies();
+    if (isSupabaseConfigured && sessionSnapshot && babyList.length > 1) {
+      const hasRealProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
+      if (!hasRealProfile) {
+        const placeholders = babyList.filter((item) => isPlaceholderBaby(item));
+        if (placeholders.length > 1) {
+          for (const duplicate of placeholders.slice(1)) {
+            await softDeleteBaby(duplicate.id);
+          }
+          babyList = await listBabies();
+        }
+      }
+    }
+    if (!babyList.length && !isSupabaseConfigured) {
+      const fallback = await getOrCreateDefaultBaby();
+      babyList = [fallback];
     }
 
-    setBabyId(baby.id);
-    setAmountUnitState(nextAmountUnit);
-    setWeightUnitState(nextWeightUnit);
-    setTempUnitState(nextTempUnit);
+    const active = pickPreferredBaby(babyList, configuredActiveBabyId);
+    if (active?.id && configuredActiveBabyId !== active.id) {
+      await setActiveBabyId(active.id);
+    }
+
+    if (!mountedRef.current) return;
+
+    setBabyId(active?.id ?? '');
+    setBabyName(normalizeName(active?.name));
+    setBabies(
+      babyList.map((item) => ({
+        id: item.id,
+        name: normalizeName(item.name),
+        photoUri: item.photo_uri ?? null,
+        birthdate: item.birthdate ?? null,
+      })),
+    );
+    setAmountUnitState(nextAmountUnit as 'ml' | 'oz');
+    setWeightUnitState(nextWeightUnit as 'kg' | 'lb');
+    setTempUnitState(nextTempUnit as 'c' | 'f');
     setReminderSettingsState(nextReminder);
     setSmartAlertSettingsState(nextSmartAlerts);
     setBackupSettingsState(nextBackupSettings);
     setLastSyncAtState(nextLastSyncAt);
-    setHasRequiredBabyProfile(postAuthEnsureBabyProfile(baby));
-  };
-
-  useEffect(() => {
-    const boot = async () => {
-      await initDatabase();
-      await refreshAppState();
-      if (isSupabaseConfigured) {
-        await refreshSession();
-        if (supabase) {
-          supabase.auth.onAuthStateChange((_event, s) => {
-            setSession(s);
-          });
-        }
-      }
-      setInitialized(true);
-    };
-
-    boot();
+    const derivedHasRequiredProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
+    if (derivedHasRequiredProfile) {
+      setHasRequiredBabyProfile(true);
+    } else if (!babyList.length && isSupabaseConfigured && sessionSnapshot) {
+      // Avoid flipping to false during transient empty states while sync is in progress.
+    } else {
+      setHasRequiredBabyProfile(false);
+    }
   }, []);
 
-  const syncNow = async () => {
+  const refreshAppState = useCallback(async () => {
+    await loadAppState(sessionRef.current);
+  }, [loadAppState]);
+
+  const syncNow = useCallback(async () => {
     if (!isSupabaseConfigured) return;
-    try {
-      setSyncState('syncing');
-      setSyncError(null);
-      await syncAll();
-      await refreshAppState();
-      setDataVersion((prev) => prev + 1);
-      setSyncState('success');
-    } catch (error: any) {
-      setSyncState('error');
-      setSyncError(error?.message ?? 'Sync failed');
+
+    if (syncTaskRef.current) {
+      return syncTaskRef.current;
     }
-  };
 
-  const bumpDataVersion = () => {
-    setDataVersion((prev) => prev + 1);
-  };
+    const task = (async () => {
+      try {
+        if (mountedRef.current) {
+          setSyncState('syncing');
+          setSyncError(null);
+        }
 
-  const saveRequiredBabyProfile = async (babyName: string, babyBirthdate: Date) => {
-    const existingLookup = babyId ? await getBabyById(babyId) : null;
-    const existing = existingLookup ?? (await getOrCreateDefaultBaby());
-    await upsertBaby(
-      {
-        ...existing,
-        name: babyName.trim(),
-        birthdate: new Date(
-          Date.UTC(
-            babyBirthdate.getFullYear(),
-            babyBirthdate.getMonth(),
-            babyBirthdate.getDate(),
-            12,
-            0,
-            0,
-            0,
-          ),
-        ).toISOString(),
-        updated_at: nowIso(),
-      },
-      true,
-    );
-    await refreshAppState();
-    if (isSupabaseConfigured && session) {
-      await syncNow();
+        await syncAll();
+        await loadAppState(sessionRef.current);
+
+        if (mountedRef.current) {
+          setDataVersion((prev) => prev + 1);
+          setSyncState('success');
+        }
+      } catch (error: any) {
+        if (mountedRef.current) {
+          setSyncState('error');
+          setSyncError(error?.message ?? 'Sync failed');
+        }
+        throw error;
+      } finally {
+        syncTaskRef.current = null;
+      }
+    })();
+
+    syncTaskRef.current = task;
+    return task;
+  }, [loadAppState]);
+
+  const refreshSession = useCallback(async () => {
+    const nextSession = await getCurrentSession();
+    setSession(nextSession);
+    await setAuthUserId(nextSession?.user.id ?? null);
+
+    if (isSupabaseConfigured && nextSession?.user?.id) {
+      try {
+        await syncNow();
+      } catch {
+        await loadAppState(nextSession);
+      }
+      return;
     }
-    setDataVersion((prev) => prev + 1);
-  };
 
-  const createNewBabyProfile = async (babyName: string, babyBirthdate: Date) => {
-    const birthdate = new Date(
-      Date.UTC(
-        babyBirthdate.getFullYear(),
-        babyBirthdate.getMonth(),
-        babyBirthdate.getDate(),
-        12,
-        0,
-        0,
-        0,
-      ),
-    ).toISOString();
+    await loadAppState(nextSession);
+  }, [loadAppState, setSession, syncNow]);
 
-    const created = await createBaby({ name: babyName, birthdate });
-    await setActiveBabyId(created.id);
-    await refreshAppState();
-    if (isSupabaseConfigured && session) {
-      await syncNow();
-    }
+  const bumpDataVersion = useCallback(() => {
+    if (!mountedRef.current) return;
     setDataVersion((prev) => prev + 1);
-    return created.id;
-  };
+  }, []);
+
+  const switchActiveBaby = useCallback(
+    async (nextBabyId: string) => {
+      const run = async () => {
+        const trimmed = nextBabyId.trim();
+        if (!trimmed) return;
+        if (trimmed === babyId) return;
+
+        const target = await getBabyById(trimmed);
+        if (!target || target.deleted_at) {
+          throw new Error('Selected baby profile is no longer available.');
+        }
+
+        await setActiveBabyId(trimmed);
+        await loadAppState(sessionRef.current);
+        if (mountedRef.current) {
+          setDataVersion((prev) => prev + 1);
+        }
+      };
+
+      const nextTask = switchQueueRef.current.then(run, run);
+      switchQueueRef.current = nextTask.then(
+        () => undefined,
+        () => undefined,
+      );
+
+      return nextTask as Promise<void>;
+    },
+    [babyId, loadAppState],
+  );
+
+  const saveRequiredBabyProfile = useCallback(
+    async (name: string, birthdate: Date, babyPhotoUri?: string | null) => {
+      const trimmedName = name.trim();
+      if (!trimmedName) throw new Error('Baby name is required.');
+
+      const duplicateName = await isBabyNameTaken(trimmedName, babyId ? { excludeBabyId: babyId } : undefined);
+      if (duplicateName) throw new Error('Baby name already exists. Use a different name.');
+
+      const birthdateIso = toBirthdateIso(birthdate);
+      const existing = babyId ? await getBabyById(babyId) : null;
+
+      let targetId = existing?.id ?? '';
+      if (existing) {
+        await upsertBaby(
+          {
+            ...existing,
+            name: trimmedName,
+            birthdate: birthdateIso,
+            photo_uri: babyPhotoUri ?? existing.photo_uri ?? null,
+            updated_at: nowIso(),
+          },
+          true,
+        );
+      } else {
+        const created = await createBaby({ name: trimmedName, birthdate: birthdateIso, photo_uri: babyPhotoUri ?? null });
+        targetId = created.id;
+      }
+
+      if (targetId) {
+        await setActiveBabyId(targetId);
+      }
+
+      await loadAppState(sessionRef.current);
+      if (mountedRef.current) {
+        setHasRequiredBabyProfile(true);
+        setDataVersion((prev) => prev + 1);
+      }
+      void syncNow().catch(() => undefined);
+      return targetId;
+    },
+    [babyId, loadAppState, syncNow],
+  );
+
+  const createNewBabyProfile = useCallback(
+    async (name: string, birthdate: Date, babyPhotoUri?: string | null) => {
+      const trimmedName = name.trim();
+      if (!trimmedName) throw new Error('Baby name is required.');
+
+      const duplicateName = await isBabyNameTaken(trimmedName);
+      if (duplicateName) throw new Error('Baby name already exists. Use a different name.');
+
+      const created = await createBaby({
+        name: trimmedName,
+        birthdate: toBirthdateIso(birthdate),
+        photo_uri: babyPhotoUri ?? null,
+      });
+      await setActiveBabyId(created.id);
+      await loadAppState(sessionRef.current);
+
+      if (mountedRef.current) {
+        setDataVersion((prev) => prev + 1);
+      }
+      void syncNow().catch(() => undefined);
+      return created.id;
+    },
+    [loadAppState, syncNow],
+  );
 
   useEffect(() => {
-    if (!initialized || !isSupabaseConfigured) return;
+    mountedRef.current = true;
 
-    syncNow();
+    let cancelled = false;
+    let unsubscribeAuth: (() => void) | null = null;
+
+    const boot = async () => {
+      try {
+        await initDatabase();
+
+        if (cancelled) return;
+
+        if (!isSupabaseConfigured) {
+          await loadAppState(null);
+        } else {
+          const nextSession = await getCurrentSession();
+          setSession(nextSession);
+          await setAuthUserId(nextSession?.user.id ?? null);
+
+          if (nextSession?.user?.id) {
+            try {
+              await syncNow();
+            } catch {
+              await loadAppState(nextSession);
+            }
+          } else {
+            await loadAppState(nextSession);
+          }
+
+          if (supabase) {
+            const { data } = supabase.auth.onAuthStateChange((_event, nextSessionFromEvent) => {
+              const run = async () => {
+                setSession(nextSessionFromEvent);
+                await setAuthUserId(nextSessionFromEvent?.user.id ?? null);
+
+                if (nextSessionFromEvent?.user?.id) {
+                  try {
+                    await syncNow();
+                  } catch {
+                    await loadAppState(nextSessionFromEvent);
+                  }
+                } else {
+                  await loadAppState(nextSessionFromEvent);
+                }
+              };
+
+              const nextTask = authQueueRef.current.then(run, run);
+              authQueueRef.current = nextTask.then(
+                () => undefined,
+                () => undefined,
+              );
+            });
+
+            unsubscribeAuth = () => data.subscription.unsubscribe();
+          }
+        }
+      } catch (error: any) {
+        if (!cancelled && mountedRef.current) {
+          setSyncState('error');
+          setSyncError(error?.message ?? 'Failed to initialize app state.');
+        }
+      } finally {
+        if (!cancelled && mountedRef.current) {
+          setInitialized(true);
+        }
+      }
+    };
+
+    void boot();
+
+    return () => {
+      cancelled = true;
+      mountedRef.current = false;
+      if (unsubscribeAuth) {
+        unsubscribeAuth();
+      }
+    };
+  }, [loadAppState, setSession, syncNow]);
+
+  useEffect(() => {
+    if (!initialized || !isSupabaseConfigured || !sessionState?.user?.id) return;
+
+    void syncNow().catch(() => undefined);
 
     const sub = AppState.addEventListener('change', (status) => {
       if (status === 'active') {
-        syncNow();
+        void syncNow().catch(() => undefined);
       }
     });
 
     return () => sub.remove();
-  }, [initialized]);
+  }, [initialized, sessionState?.user?.id, syncNow]);
 
   useEffect(() => {
     if (!initialized) return;
@@ -242,63 +479,80 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     const checkBackup = async () => {
       const updatedAt = await runAutoBackupIfDue(backupSettings);
       if (updatedAt) {
-        await saveBackupSettings({ ...backupSettings, lastBackupAt: updatedAt });
-        setBackupSettingsState((prev) => ({ ...prev, lastBackupAt: updatedAt }));
+        const next = { ...backupSettings, lastBackupAt: updatedAt };
+        await saveBackupSettings(next);
+        if (mountedRef.current) {
+          setBackupSettingsState(next);
+        }
       }
     };
 
-    checkBackup();
+    void checkBackup();
 
     const sub = AppState.addEventListener('change', (status) => {
       if (status === 'active') {
-        checkBackup();
+        void checkBackup();
       }
     });
 
     return () => sub.remove();
   }, [initialized, backupSettings]);
 
-  const updateAmountUnit = async (unit: 'ml' | 'oz') => {
+  const updateAmountUnit = useCallback(async (unit: 'ml' | 'oz') => {
     await setAmountUnit(unit);
-    setAmountUnitState(unit);
-  };
+    if (mountedRef.current) {
+      setAmountUnitState(unit);
+    }
+  }, []);
 
-  const updateWeightUnit = async (unit: 'kg' | 'lb') => {
+  const updateWeightUnit = useCallback(async (unit: 'kg' | 'lb') => {
     await setWeightUnit(unit);
-    setWeightUnitState(unit);
-  };
+    if (mountedRef.current) {
+      setWeightUnitState(unit);
+    }
+  }, []);
 
-  const updateTempUnit = async (unit: 'c' | 'f') => {
+  const updateTempUnit = useCallback(async (unit: 'c' | 'f') => {
     await setTempUnit(unit);
-    setTempUnitState(unit);
-  };
+    if (mountedRef.current) {
+      setTempUnitState(unit);
+    }
+  }, []);
 
-  const updateReminderSettings = async (settings: ReminderSettings) => {
+  const updateReminderSettings = useCallback(async (settings: ReminderSettings) => {
     await saveReminderSettings(settings);
-    setReminderSettingsState(settings);
-  };
+    if (mountedRef.current) {
+      setReminderSettingsState(settings);
+    }
+  }, []);
 
-  const updateSmartAlertSettings = async (settings: SmartAlertSettings) => {
+  const updateSmartAlertSettings = useCallback(async (settings: SmartAlertSettings) => {
     await saveSmartAlertSettings(settings);
-    setSmartAlertSettingsState(settings);
-  };
+    if (mountedRef.current) {
+      setSmartAlertSettingsState(settings);
+    }
+  }, []);
 
-  const updateBackupSettings = async (settings: BackupSettings) => {
+  const updateBackupSettings = useCallback(async (settings: BackupSettings) => {
     await saveBackupSettings(settings);
-    setBackupSettingsState(settings);
-  };
+    if (mountedRef.current) {
+      setBackupSettingsState(settings);
+    }
+  }, []);
 
   const value = useMemo<AppContextValue>(
     () => ({
       initialized,
       babyId,
+      babyName,
+      babies,
       amountUnit,
       weightUnit,
       tempUnit,
       reminderSettings,
       smartAlertSettings,
       backupSettings,
-      session,
+      session: sessionState,
       supabaseEnabled: isSupabaseConfigured,
       syncState,
       syncError,
@@ -306,6 +560,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       dataVersion,
       hasRequiredBabyProfile,
       refreshAppState,
+      switchActiveBaby,
       updateAmountUnit,
       updateWeightUnit,
       updateTempUnit,
@@ -321,18 +576,32 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     [
       initialized,
       babyId,
+      babyName,
+      babies,
       amountUnit,
       weightUnit,
       tempUnit,
       reminderSettings,
       smartAlertSettings,
       backupSettings,
-      session,
+      sessionState,
       syncState,
       syncError,
       lastSyncAt,
       dataVersion,
       hasRequiredBabyProfile,
+      refreshAppState,
+      switchActiveBaby,
+      updateAmountUnit,
+      updateWeightUnit,
+      updateTempUnit,
+      updateReminderSettings,
+      updateSmartAlertSettings,
+      updateBackupSettings,
+      refreshSession,
+      syncNow,
+      bumpDataVersion,
+      saveRequiredBabyProfile,
       createNewBabyProfile,
     ],
   );

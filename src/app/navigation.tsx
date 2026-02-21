@@ -1,18 +1,19 @@
-import React from 'react';
-import { ActivityIndicator, Pressable, Text, useColorScheme, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppContext } from '../context/AppContext';
-import { TodayScreen } from '../screens/TodayScreen';
 import { AddEntryScreen } from '../screens/AddEntryScreen';
-import { LogsScreen } from '../screens/LogsScreen';
-import { ChartsScreen } from '../screens/ChartsScreen';
-import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthScreen } from '../screens/AuthScreen';
 import { BabyProfileGateScreen } from '../screens/BabyProfileGateScreen';
-import { getTheme } from '../theme/designSystem';
+import { ChartsScreen } from '../screens/ChartsScreen';
+import { LogsScreen } from '../screens/LogsScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
+import { TodayScreen } from '../screens/TodayScreen';
+import { useAppContext } from '../context/AppContext';
+import { AppTheme } from '../theme/designSystem';
+import { useAppTheme } from '../theme/useAppTheme';
 
 export type RootStackParamList = {
   Main: undefined;
@@ -36,211 +37,262 @@ export type MainTabParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
+
 const tabIcon = (routeName: keyof MainTabParamList, focused: boolean, color: string, size: number) => {
-  if (routeName === 'Today') {
-    return <Ionicons name={focused ? 'sunny' : 'sunny-outline'} size={size} color={color} />;
-  }
-
-  if (routeName === 'QuickAdd') {
-    return <Ionicons name="add" size={size + 2} color={color} />;
-  }
-
-  if (routeName === 'Logs') {
-    return <Ionicons name={focused ? 'list' : 'list-outline'} size={size} color={color} />;
-  }
-  return <Ionicons name="add" size={size + 2} color={color} />;
+  if (routeName === 'Today') return <Ionicons name={focused ? 'sunny' : 'sunny-outline'} size={size} color={color} />;
+  if (routeName === 'QuickAdd') return <Ionicons name="add" size={size + 2} color={color} />;
+  return <Ionicons name={focused ? 'list' : 'list-outline'} size={size} color={color} />;
 };
 
-const MainTabs = ({ initials }: { initials: string }) => {
-  const scheme = useColorScheme();
-  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
-  const activeTabColor = theme.colors.primary;
+const MainTabs = ({
+  initials,
+  babyInitial,
+  babyId,
+  babies,
+  switchActiveBaby,
+}: {
+  initials: string;
+  babyInitial: string;
+  babyId: string;
+  babies: Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>;
+  switchActiveBaby: (babyId: string) => Promise<void>;
+}) => {
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherHint, setSwitcherHint] = useState<string | null>(null);
+
+  const activeBaby = useMemo(() => babies.find((baby) => baby.id === babyId) ?? null, [babies, babyId]);
+  const activeBabyPhotoUri = activeBaby?.photoUri ?? null;
+
+  const inactiveBabyInitial = useMemo(() => {
+    const inactive = babies.find((baby) => baby.id !== babyId);
+    return inactive ? (inactive.name.trim().charAt(0) || 'B').toUpperCase() : null;
+  }, [babies, babyId]);
+
+  const onPressBabyAvatar = () => {
+    if (babies.length <= 1) {
+      setSwitcherHint('Add another baby profile to switch quickly.');
+    } else {
+      setSwitcherHint(null);
+    }
+    setSwitcherOpen(true);
+  };
 
   return (
-    <Tabs.Navigator
-      screenOptions={({ route, navigation }) => ({
-      headerTitleStyle: {
-        fontWeight: '600',
-        fontSize: 18,
-        lineHeight: 24,
-        letterSpacing: 0,
-        color: theme.colors.textPrimary,
-      },
-      headerStyle: {
-        backgroundColor: theme.colors.background,
-      },
-      headerShadowVisible: false,
-      headerLeftContainerStyle: { paddingLeft: 16 },
-      headerRightContainerStyle: { paddingRight: 16 },
-      tabBarShowLabel: true,
-      tabBarActiveTintColor: activeTabColor,
-      tabBarInactiveTintColor: theme.colors.textMuted,
-      tabBarLabelStyle: { fontSize: 12, lineHeight: 16, fontWeight: '600', letterSpacing: 0.2, marginBottom: 3 },
-      tabBarStyle: {
-        height: 72,
-        paddingTop: 6,
-        paddingBottom: 8,
-        borderTopWidth: 1,
-        borderTopColor: theme.colors.border,
-        backgroundColor: theme.colors.surface,
-        overflow: 'visible',
-      },
-      headerLeft: () => (
-        <View style={{ width: 88, height: 40, justifyContent: 'center' }}>
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              zIndex: 3,
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#FFE194',
-              borderWidth: 2,
-              borderColor: theme.colors.surface,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: '#7A5A00', fontSize: 14, fontWeight: '700' }}>A</Text>
-          </View>
-          <View
-            style={{
-              position: 'absolute',
-              left: 15,
-              zIndex: 2,
-              width: 34,
-              height: 34,
-              borderRadius: 17,
-              backgroundColor: '#FFB085',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: '#7C3A1D', fontSize: 13, fontWeight: '700' }}>B</Text>
-          </View>
-          <View
-            style={{
-              position: 'absolute',
-              left: 30,
-              zIndex: 1,
-              width: 34,
-              height: 34,
-              borderRadius: 17,
-              backgroundColor: '#90AACB',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '700' }}>C</Text>
-          </View>
-        </View>
-      ),
-      headerRight: () => {
-        const parentNav = navigation.getParent<any>();
-        return (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <>
+      <Tabs.Navigator
+        screenOptions={({ route, navigation }) => ({
+          headerTitleStyle: [styles.headerTitle, { color: theme.colors.textPrimary }],
+          headerStyle: [styles.header, { backgroundColor: theme.colors.background }],
+          headerShadowVisible: false,
+          headerLeftContainerStyle: styles.headerLeftContainer,
+          headerRightContainerStyle: styles.headerRightContainer,
+          tabBarShowLabel: true,
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textMuted,
+          tabBarLabelStyle: styles.tabBarLabel,
+          tabBarStyle: [styles.tabBar, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface }],
+          headerLeft: () => (
             <Pressable
-              onPress={() => parentNav?.navigate('Charts')}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              style={styles.avatarStackTrigger}
+              onPress={onPressBabyAvatar}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Switch active baby"
             >
-              <Ionicons name="bar-chart-outline" size={20} color={theme.colors.textSecondary} />
+              {inactiveBabyInitial ? (
+                <View style={[styles.inactiveAvatar, { borderColor: theme.colors.surface }]}>
+                  <Text style={[styles.inactiveAvatarText, { color: theme.colors.textMuted }]}>{inactiveBabyInitial}</Text>
+                </View>
+              ) : null}
+              <View style={[styles.activeAvatar, { borderColor: theme.colors.surface }]}>
+                {activeBabyPhotoUri ? (
+                  <Image source={{ uri: activeBabyPhotoUri }} style={styles.activeAvatarImage} />
+                ) : (
+                  <Text style={styles.activeAvatarText}>{babyInitial}</Text>
+                )}
+              </View>
             </Pressable>
-            <Pressable
-              onPress={() => parentNav?.navigate('Settings')}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: theme.colors.primary,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              hitSlop={8}
-            >
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{initials}</Text>
-            </Pressable>
-          </View>
-        );
-      },
-      tabBarIcon: ({ focused, color }) => tabIcon(route.name as keyof MainTabParamList, focused, color, 24),
-    })}
-  >
-    <Tabs.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today' }} />
-    <Tabs.Screen
-      name="QuickAdd"
-      component={TodayScreen}
-      options={{
-        title: '',
-        tabBarLabel: '',
-        tabBarIcon: () => null,
-        tabBarButton: ({ onPress, onLongPress, accessibilityState, accessibilityLabel, testID }) => (
+          ),
+          headerRight: () => {
+            const parentNav = navigation.getParent<any>();
+            return (
+              <View style={styles.headerRightRow}>
+                <Pressable
+                  onPress={() => parentNav?.navigate('Charts')}
+                  style={styles.iconButton}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open charts"
+                >
+                  <Ionicons name="bar-chart-outline" size={20} color={theme.colors.textSecondary} />
+                </Pressable>
+                <Pressable
+                  onPress={() => parentNav?.navigate('Settings')}
+                  style={[styles.profileButton, { backgroundColor: theme.colors.primary }]}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open profile settings"
+                >
+                  <Text style={styles.profileButtonText}>{initials}</Text>
+                </Pressable>
+              </View>
+            );
+          },
+          tabBarIcon: ({ focused, color }) => tabIcon(route.name as keyof MainTabParamList, focused, color, 24),
+        })}
+      >
+        <Tabs.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today' }} />
+        <Tabs.Screen
+          name="QuickAdd"
+          component={TodayScreen}
+          options={{
+            title: '',
+            tabBarLabel: '',
+            tabBarIcon: () => null,
+            tabBarButton: ({ onPress, onLongPress, accessibilityState, accessibilityLabel, testID }) => (
+              <Pressable
+                onPress={onPress}
+                onLongPress={onLongPress}
+                accessibilityRole="button"
+                accessibilityState={accessibilityState}
+                accessibilityLabel={accessibilityLabel ?? 'Quick add entry'}
+                testID={testID}
+                style={[styles.quickAddButton, { backgroundColor: theme.colors.primary }, theme.shadows.level3]}
+              >
+                <Text style={styles.quickAddText}>+</Text>
+              </Pressable>
+            ),
+          }}
+          listeners={({ navigation }) => ({
+            tabPress: (e) => {
+              e.preventDefault();
+              const parentNav = navigation.getParent<any>();
+              parentNav?.navigate('AddEntry', { type: 'feed' });
+            },
+          })}
+        />
+        <Tabs.Screen name="Logs" component={LogsScreen} options={{ title: 'Logs', tabBarLabel: 'Logs' }} />
+      </Tabs.Navigator>
+
+      <Modal transparent visible={switcherOpen} animationType="fade" onRequestClose={() => setSwitcherOpen(false)}>
+        <Pressable onPress={() => setSwitcherOpen(false)} style={[styles.switcherOverlay, { backgroundColor: theme.colors.overlay }]}>
           <Pressable
-            onPress={onPress}
-            onLongPress={onLongPress}
-            accessibilityRole="button"
-            accessibilityState={accessibilityState}
-            accessibilityLabel={accessibilityLabel}
-            testID={testID}
-            style={{
-              position: 'absolute',
-              left: '50%',
-              transform: [{ translateX: -32 }],
-              top: -22,
-              justifyContent: 'center',
-              alignItems: 'center',
-              width: 64,
-              height: 64,
-              borderRadius: 32,
-              backgroundColor: activeTabColor,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 8,
-            }}
+            onPress={() => {}}
+            style={[
+              styles.switcherSheet,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+              theme.shadows.level2,
+            ]}
           >
-            <Text style={{ color: '#ffffff', fontSize: 34, lineHeight: 34, fontWeight: '500' }}>+</Text>
+            <Text style={[styles.switcherTitle, { color: theme.colors.textPrimary }]}>Switch Baby</Text>
+            <Text style={[styles.switcherSubtitle, { color: theme.colors.textSecondary }]}>Choose active baby</Text>
+            {switcherHint ? (
+              <Text style={[styles.switcherHint, { color: theme.colors.textSecondary }]}>
+                {switcherHint}
+              </Text>
+            ) : null}
+
+            {babies.map((baby) => {
+              const isActive = baby.id === babyId;
+              const initial = (baby.name.trim().charAt(0) || 'B').toUpperCase();
+              return (
+                <Pressable
+                  key={baby.id}
+                  onPress={() => {
+                    setSwitcherOpen(false);
+                    if (isActive) return;
+                    void switchActiveBaby(baby.id);
+                  }}
+                  style={[
+                    styles.switcherRow,
+                    {
+                      backgroundColor: isActive ? theme.colors.primarySoft : theme.colors.background,
+                      borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Switch to ${baby.name}`}
+                  accessibilityState={{ selected: isActive }}
+                >
+                  <View style={styles.switcherRowLeft}>
+                    <View
+                      style={[
+                        styles.switcherRowAvatar,
+                        {
+                          borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                          backgroundColor: isActive ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                        },
+                      ]}
+                    >
+                      {baby.photoUri ? (
+                        <Image source={{ uri: baby.photoUri }} style={styles.switcherRowAvatarImage} />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.switcherRowAvatarText,
+                            { color: isActive ? theme.colors.primary : theme.colors.textSecondary },
+                          ]}
+                        >
+                          {initial}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={[styles.switcherRowText, { color: isActive ? theme.colors.primary : theme.colors.textPrimary }]}>
+                      {baby.name}
+                    </Text>
+                  </View>
+                  {isActive ? <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} /> : null}
+                </Pressable>
+              );
+            })}
+
+            <Pressable
+              onPress={() => setSwitcherOpen(false)}
+              style={[styles.cancelButton, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel switching baby"
+            >
+              <Text style={[styles.cancelButtonText, { color: theme.colors.textPrimary }]}>Cancel</Text>
+            </Pressable>
           </Pressable>
-        ),
-      }}
-      listeners={({ navigation }) => ({
-        tabPress: (e) => {
-          e.preventDefault();
-          const parentNav = navigation.getParent<any>();
-          parentNav?.navigate('AddEntry', { type: 'feed' });
-        },
-      })}
-    />
-    <Tabs.Screen name="Logs" component={LogsScreen} options={{ title: 'Logs', tabBarLabel: 'Logs' }} />
-  </Tabs.Navigator>
+        </Pressable>
+      </Modal>
+    </>
   );
 };
 
 export const AppNavigation = () => {
-  const scheme = useColorScheme();
-  const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
-  const { initialized, supabaseEnabled, session, hasRequiredBabyProfile } = useAppContext();
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { initialized, supabaseEnabled, session, hasRequiredBabyProfile, babyName, babyId, babies, switchActiveBaby } =
+    useAppContext();
 
   if (!initialized) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
+      <View style={styles.loaderContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   const requiresAuth = supabaseEnabled && !session;
-  const requiresBabyProfile = supabaseEnabled && Boolean(session) && !hasRequiredBabyProfile;
+  const hasCreatedBabyFallback = babies.some((baby) => {
+    const normalizedName = baby.name.trim().toLowerCase();
+    const hasRealName = normalizedName.length > 0 && normalizedName !== 'my baby';
+    const hasBirthdate = Boolean(baby.birthdate && baby.birthdate.trim().length > 0);
+    return hasRealName || hasBirthdate;
+  });
+  const requiresBabyProfile = supabaseEnabled && Boolean(session) && !hasRequiredBabyProfile && !hasCreatedBabyFallback;
+  const stackKey = requiresAuth ? 'auth' : requiresBabyProfile ? 'required-onboarding' : 'app';
   const initials = session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'B';
-  const navTheme = scheme === 'dark' ? { ...DarkTheme } : { ...DefaultTheme };
+  const babyInitial = (babyName?.trim().charAt(0) || 'B').toUpperCase();
+  const navTheme = theme.mode === 'dark' ? { ...DarkTheme } : { ...DefaultTheme };
+
   navTheme.colors.background = theme.colors.background;
   navTheme.colors.card = theme.colors.surface;
   navTheme.colors.text = theme.colors.textPrimary;
@@ -250,14 +302,11 @@ export const AppNavigation = () => {
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator
+        key={stackKey}
         screenOptions={{
           headerStyle: { backgroundColor: theme.colors.surface },
           headerShadowVisible: false,
-          headerTitleStyle: {
-            fontWeight: '600',
-            fontSize: 18,
-            color: theme.colors.textPrimary,
-          },
+          headerTitleStyle: [styles.headerTitle, { color: theme.colors.textPrimary }],
           headerTintColor: theme.colors.textPrimary,
           contentStyle: { backgroundColor: theme.colors.background },
         }}
@@ -274,7 +323,15 @@ export const AppNavigation = () => {
         ) : (
           <>
             <Stack.Screen name="Main" options={{ headerShown: false }}>
-              {() => <MainTabs initials={initials} />}
+              {() => (
+                <MainTabs
+                  initials={initials}
+                  babyInitial={babyInitial}
+                  babyId={babyId}
+                  babies={babies}
+                  switchActiveBaby={switchActiveBaby}
+                />
+              )}
             </Stack.Screen>
             <Stack.Screen name="Charts" component={ChartsScreen} options={{ title: 'Charts' }} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Profile' }} />
@@ -290,3 +347,193 @@ export const AppNavigation = () => {
     </NavigationContainer>
   );
 };
+
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
+    loaderContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      elevation: 0,
+    },
+    headerTitle: {
+      ...theme.typography.h6,
+      fontWeight: '700',
+    },
+    headerLeftContainer: {
+      paddingLeft: theme.spacing[4],
+    },
+    headerRightContainer: {
+      paddingRight: theme.spacing[4],
+    },
+    tabBar: {
+      height: 72,
+      paddingTop: theme.spacing[1],
+      paddingBottom: theme.spacing[2],
+      borderTopWidth: 1,
+      overflow: 'visible',
+    },
+    tabBarLabel: {
+      ...theme.typography.caption,
+      marginBottom: 3,
+    },
+    avatarStackTrigger: {
+      width: 62,
+      height: 40,
+      justifyContent: 'center',
+    },
+    inactiveAvatar: {
+      position: 'absolute',
+      left: 18,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: '#CBD5E1',
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    inactiveAvatarText: {
+      ...theme.typography.caption,
+      fontWeight: '700',
+    },
+    activeAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: '#FFE194',
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    activeAvatarText: {
+      ...theme.typography.bodySm,
+      color: '#7A5A00',
+      fontWeight: '800',
+    },
+    activeAvatarImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 20,
+    },
+    headerRightRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing[2],
+    },
+    iconButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileButtonText: {
+      ...theme.typography.bodySm,
+      color: '#FFFFFF',
+      fontWeight: '800',
+    },
+    quickAddButton: {
+      position: 'absolute',
+      left: '50%',
+      transform: [{ translateX: -32 }],
+      top: -22,
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    quickAddText: {
+      color: '#FFFFFF',
+      fontSize: 34,
+      lineHeight: 34,
+      fontWeight: '500',
+    },
+    switcherOverlay: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing[5],
+    },
+    switcherSheet: {
+      width: '100%',
+      maxWidth: 360,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing[4],
+      borderWidth: 1,
+      gap: theme.spacing[2],
+    },
+    switcherTitle: {
+      ...theme.typography.h4,
+      fontWeight: '800',
+    },
+    switcherSubtitle: {
+      ...theme.typography.bodySm,
+      marginBottom: theme.spacing[1],
+    },
+    switcherHint: {
+      ...theme.typography.caption,
+      marginBottom: theme.spacing[1],
+    },
+    switcherRow: {
+      minHeight: 48,
+      borderRadius: theme.radius.full,
+      borderWidth: 1,
+      paddingHorizontal: theme.spacing[3],
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    switcherRowLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing[2],
+      flex: 1,
+    },
+    switcherRowAvatar: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    switcherRowAvatarImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 15,
+    },
+    switcherRowAvatarText: {
+      ...theme.typography.caption,
+      fontWeight: '700',
+    },
+    switcherRowText: {
+      ...theme.typography.bodySm,
+      fontWeight: '700',
+    },
+    cancelButton: {
+      minHeight: 48,
+      borderRadius: theme.radius.full,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: theme.spacing[1],
+    },
+    cancelButtonText: {
+      ...theme.typography.buttonSm,
+      fontWeight: '700',
+    },
+  });

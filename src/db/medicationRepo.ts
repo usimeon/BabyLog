@@ -2,6 +2,16 @@ import { MedicationDoseUnit, MedicationLog } from '../types/models';
 import { createId } from '../utils/id';
 import { nowIso } from '../utils/time';
 import { getAll, getOne, runSql } from './client';
+import {
+  assertNoDuplicateRow,
+  ensureBabyExists,
+  ensureRecordForUpdate,
+  normalizeIsoTimestamp,
+  normalizeNullableNumberInRange,
+  normalizeNumberInRange,
+  normalizeOptionalText,
+  normalizeRequiredText,
+} from './repoValidation';
 
 export type MedicationInput = {
   timestamp: string;
@@ -12,7 +22,43 @@ export type MedicationInput = {
   notes?: string | null;
 };
 
+const DOSE_UNITS: MedicationDoseUnit[] = ['ml', 'mg', 'drops', 'tablet'];
+
+const normalizeMedicationInput = (input: MedicationInput): MedicationInput => {
+  if (!DOSE_UNITS.includes(input.dose_unit)) {
+    throw new Error('Dose unit is invalid.');
+  }
+
+  return {
+    timestamp: normalizeIsoTimestamp(input.timestamp),
+    medication_name: normalizeRequiredText(input.medication_name, 'Medication name', 120),
+    dose_value: normalizeNumberInRange(input.dose_value, 'Dose value', 0.01, 10000),
+    dose_unit: input.dose_unit,
+    min_interval_hours: normalizeNullableNumberInRange(input.min_interval_hours, 'Minimum interval', 0.1, 168),
+    notes: normalizeOptionalText(input.notes, 'Medication notes', 2000),
+  };
+};
+
+const assertNoDuplicateMedication = async (babyId: string, input: MedicationInput, excludeId?: string) => {
+  await assertNoDuplicateRow({
+    table: 'medication_logs',
+    babyId,
+    timestamp: input.timestamp,
+    columns: [
+      { column: 'lower(medication_name)', value: input.medication_name.toLowerCase() },
+      { column: 'dose_value', value: input.dose_value },
+      { column: 'dose_unit', value: input.dose_unit },
+    ],
+    excludeId,
+    message: 'A similar medication entry already exists for this timestamp.',
+  });
+};
+
 export const addMedicationLog = async (babyId: string, input: MedicationInput) => {
+  const normalizedBabyId = await ensureBabyExists(babyId);
+  const payload = normalizeMedicationInput(input);
+  await assertNoDuplicateMedication(normalizedBabyId, payload);
+
   const now = nowIso();
   const id = createId('med');
 
@@ -23,13 +69,13 @@ export const addMedicationLog = async (babyId: string, input: MedicationInput) =
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1);`,
     [
       id,
-      babyId,
-      input.timestamp,
-      input.medication_name,
-      input.dose_value,
-      input.dose_unit,
-      input.min_interval_hours ?? null,
-      input.notes ?? null,
+      normalizedBabyId,
+      payload.timestamp,
+      payload.medication_name,
+      payload.dose_value,
+      payload.dose_unit,
+      payload.min_interval_hours ?? null,
+      payload.notes ?? null,
       now,
       now,
     ],
@@ -39,24 +85,28 @@ export const addMedicationLog = async (babyId: string, input: MedicationInput) =
 };
 
 export const updateMedicationLog = async (id: string, input: MedicationInput) => {
+  const existing = await ensureRecordForUpdate('medication_logs', id, ['id', 'baby_id', 'deleted_at']);
+  const payload = normalizeMedicationInput(input);
+  await assertNoDuplicateMedication(existing.baby_id, payload, existing.id);
+
   const now = nowIso();
   await runSql(
     `UPDATE medication_logs
      SET timestamp = ?, medication_name = ?, dose_value = ?, dose_unit = ?, min_interval_hours = ?, notes = ?, updated_at = ?, dirty = 1
      WHERE id = ?;`,
     [
-      input.timestamp,
-      input.medication_name,
-      input.dose_value,
-      input.dose_unit,
-      input.min_interval_hours ?? null,
-      input.notes ?? null,
+      payload.timestamp,
+      payload.medication_name,
+      payload.dose_value,
+      payload.dose_unit,
+      payload.min_interval_hours ?? null,
+      payload.notes ?? null,
       now,
-      id,
+      existing.id,
     ],
   );
 
-  return getMedicationById(id);
+  return getMedicationById(existing.id);
 };
 
 export const softDeleteMedicationLog = async (id: string) => {
