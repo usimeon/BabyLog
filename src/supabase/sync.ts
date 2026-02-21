@@ -181,6 +181,12 @@ const removeLocalPlaceholderBabies = async (remoteBabies: RemoteBabyRow[]) => {
   for (const baby of localBabies) {
     if (remoteIds.has(baby.id)) continue;
     if (baby.dirty !== 1) continue;
+    const normalizedName = String(baby.name ?? '')
+      .trim()
+      .toLowerCase();
+    const hasBirthdate = Boolean(String(baby.birthdate ?? '').trim().length);
+    const isPlaceholder = normalizedName === 'my baby' && !hasBirthdate;
+    if (!isPlaceholder) continue;
 
     const [feedCount, measurementCount, tempCount, diaperCount, medicationCount, milestoneCount] = await Promise.all([
       getOne<{ count: number }>('SELECT COUNT(*) as count FROM feed_events WHERE baby_id = ? AND deleted_at IS NULL;', [
@@ -750,14 +756,19 @@ const resetLocalDataForUserSwitch = async () => {
 
 const ensureLocalDataOwner = async (userId: string) => {
   const [owner, previousAuthUserId] = await Promise.all([getLocalDataOwnerUserId(), getAuthUserId()]);
-  const discoveredOwner = owner ?? previousAuthUserId;
 
-  if (discoveredOwner && discoveredOwner !== userId) {
-    console.log(`[sync] local data owner changed ${discoveredOwner} -> ${userId}, resetting local sync tables`);
+  if (owner && owner !== userId) {
+    console.log(`[sync] local data owner changed ${owner} -> ${userId}, resetting local sync tables`);
     await resetLocalDataForUserSwitch();
   }
 
-  if (discoveredOwner !== userId) {
+  if (!owner && previousAuthUserId && previousAuthUserId !== userId) {
+    // Legacy migrations used auth_user_id as owner. Avoid destructive resets here because
+    // that value can be stale during first auth sync and wipe newly created onboarding data.
+    console.log(`[sync] legacy auth owner ${previousAuthUserId} differs from ${userId}; preserving local data`);
+  }
+
+  if (owner !== userId) {
     await setLocalDataOwnerUserId(userId);
   }
 };

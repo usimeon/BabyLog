@@ -16,6 +16,8 @@ import {
   getAmountUnit,
   getBackupSettings,
   getLastSyncAt,
+  getLocalDataOwnerUserId,
+  getRequiredProfileOwnerUserId,
   getReminderSettings,
   getSmartAlertSettings,
   getTempUnit,
@@ -26,6 +28,8 @@ import {
   setActiveBabyId,
   setAmountUnit,
   setAuthUserId,
+  setLocalDataOwnerUserId,
+  setRequiredProfileOwnerUserId,
   setTempUnit,
   setWeightUnit,
 } from '../db/settingsRepo';
@@ -34,11 +38,23 @@ import { isSupabaseConfigured, supabase } from '../supabase/client';
 import { getCurrentSession } from '../supabase/auth';
 import { syncAll } from '../supabase/sync';
 import { runAutoBackupIfDue } from '../services/backups';
-import { nowIso } from '../utils/time';
 import { postAuthEnsureBabyProfile } from '../services/postAuthEnsureBabyProfile';
+import { nowIso } from '../utils/time';
+import {
+  defaultBackupSettings,
+  defaultReminder,
+  defaultSmartAlerts,
+  getProfileOwnerKey,
+  isPlaceholderBaby,
+  normalizeName,
+  pickPreferredBaby,
+  toBirthdateIso,
+} from './appContext.helpers';
 
 type AppContextValue = {
   initialized: boolean;
+  appStateHydrating: boolean;
+  forceMainAfterOnboarding: boolean;
   babyId: string;
   babyName: string;
   babies: Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>;
@@ -72,60 +88,10 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const defaultReminder: ReminderSettings = {
-  enabled: false,
-  intervalHours: 3,
-  quietHoursStart: null,
-  quietHoursEnd: null,
-  allowDuringQuietHours: false,
-};
-
-const defaultSmartAlerts: SmartAlertSettings = {
-  enabled: true,
-  feedGapHours: 4.5,
-  diaperGapHours: 8,
-  feverThresholdC: 38,
-  lowFeedsPerDay: 6,
-};
-
-const defaultBackupSettings: BackupSettings = {
-  enabled: false,
-  destination: 'share',
-  intervalDays: 1,
-  lastBackupAt: null,
-};
-
-const normalizeName = (name?: string | null) => {
-  const trimmed = name?.trim();
-  return trimmed && trimmed.length ? trimmed : 'My Baby';
-};
-
-const isPlaceholderBaby = (baby: { name?: string | null; birthdate?: string | null }) => {
-  const normalizedName = baby.name?.trim().toLowerCase() ?? '';
-  return normalizedName === 'my baby' && !baby.birthdate;
-};
-
-const toBirthdateIso = (birthdate: Date) =>
-  new Date(
-    Date.UTC(birthdate.getFullYear(), birthdate.getMonth(), birthdate.getDate(), 12, 0, 0, 0),
-  ).toISOString();
-
-type MinimalBaby = { id: string; name: string; birthdate?: string | null; photo_uri?: string | null };
-
-const pickPreferredBaby = (babyList: MinimalBaby[], activeBabyId: string | null) => {
-  if (!babyList.length) return null;
-
-  const active = activeBabyId ? babyList.find((baby) => baby.id === activeBabyId) : null;
-  if (active) return active;
-
-  const complete = babyList.find((baby) => postAuthEnsureBabyProfile(baby));
-  if (complete) return complete;
-
-  return babyList[0];
-};
-
 export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const [initialized, setInitialized] = useState(false);
+  const [appStateHydrating, setAppStateHydrating] = useState(false);
+  const [forceMainAfterOnboarding, setForceMainAfterOnboarding] = useState(false);
   const [babyId, setBabyId] = useState('');
   const [babyName, setBabyName] = useState('My Baby');
   const [babies, setBabies] = useState<Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>>([]);
@@ -147,8 +113,33 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const syncTaskRef = useRef<Promise<void> | null>(null);
   const switchQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const authQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const requiredProfileOwnerRef = useRef<string | null>(null);
+  const babyIdRef = useRef('');
+  const babiesRef = useRef<Array<{ id: string; name: string; photoUri?: string | null; birthdate?: string | null }>>([]);
+
+  useEffect(() => {
+    babyIdRef.current = babyId;
+  }, [babyId]);
+
+  useEffect(() => {
+    babiesRef.current = babies;
+  }, [babies]);
 
   const setSession = useCallback((next: Session | null) => {
+    const nextOwnerKey = getProfileOwnerKey(next);
+    if (!next?.user?.id) {
+      requiredProfileOwnerRef.current = null;
+      if (mountedRef.current) {
+        setForceMainAfterOnboarding(false);
+      }
+    } else if (
+      requiredProfileOwnerRef.current &&
+      requiredProfileOwnerRef.current !== '__local__' &&
+      requiredProfileOwnerRef.current !== nextOwnerKey
+    ) {
+      requiredProfileOwnerRef.current = null;
+    }
+
     sessionRef.current = next;
     if (mountedRef.current) {
       setSessionState(next);
@@ -156,67 +147,104 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   }, []);
 
   const loadAppState = useCallback(async (sessionSnapshot: Session | null) => {
-    const [configuredActiveBabyId, nextAmountUnit, nextWeightUnit, nextTempUnit, nextReminder, nextSmartAlerts, nextBackupSettings, nextLastSyncAt] =
-      await Promise.all([
-        getActiveBabyId(),
-        getAmountUnit(),
-        getWeightUnit(),
-        getTempUnit(),
-        getReminderSettings(),
-        getSmartAlertSettings(),
-        getBackupSettings(),
-        getLastSyncAt(),
-      ]);
+    if (mountedRef.current) {
+      setAppStateHydrating(true);
+    }
+    try {
+      const [configuredActiveBabyId, nextAmountUnit, nextWeightUnit, nextTempUnit, nextReminder, nextSmartAlerts, nextBackupSettings, nextLastSyncAt, persistedRequiredProfileOwner] =
+        await Promise.all([
+          getActiveBabyId(),
+          getAmountUnit(),
+          getWeightUnit(),
+          getTempUnit(),
+          getReminderSettings(),
+          getSmartAlertSettings(),
+          getBackupSettings(),
+          getLastSyncAt(),
+          getRequiredProfileOwnerUserId(),
+        ]);
 
-    let babyList = await listBabies();
-    if (isSupabaseConfigured && sessionSnapshot && babyList.length > 1) {
-      const hasRealProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
-      if (!hasRealProfile) {
-        const placeholders = babyList.filter((item) => isPlaceholderBaby(item));
-        if (placeholders.length > 1) {
-          for (const duplicate of placeholders.slice(1)) {
-            await softDeleteBaby(duplicate.id);
+      let babyList = await listBabies();
+      if (isSupabaseConfigured && sessionSnapshot && babyList.length > 1) {
+        const hasRealProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
+        if (!hasRealProfile) {
+          const placeholders = babyList.filter((item) => isPlaceholderBaby(item));
+          if (placeholders.length > 1) {
+            for (const duplicate of placeholders.slice(1)) {
+              await softDeleteBaby(duplicate.id);
+            }
+            babyList = await listBabies();
           }
-          babyList = await listBabies();
         }
       }
-    }
-    if (!babyList.length && !isSupabaseConfigured) {
-      const fallback = await getOrCreateDefaultBaby();
-      babyList = [fallback];
-    }
+      if (!babyList.length && !isSupabaseConfigured) {
+        const fallback = await getOrCreateDefaultBaby();
+        babyList = [fallback];
+      }
 
-    const active = pickPreferredBaby(babyList, configuredActiveBabyId);
-    if (active?.id && configuredActiveBabyId !== active.id) {
-      await setActiveBabyId(active.id);
-    }
+      const ownerKey = getProfileOwnerKey(sessionSnapshot);
+      const hasPersistedRequiredProfile = persistedRequiredProfileOwner === ownerKey;
+      const shouldPreserveKnownProfileState =
+        Boolean(sessionSnapshot?.user?.id) &&
+        !babyList.length &&
+        (hasPersistedRequiredProfile || requiredProfileOwnerRef.current === ownerKey || babiesRef.current.length > 0);
 
-    if (!mountedRef.current) return;
+      const active = pickPreferredBaby(babyList, configuredActiveBabyId);
+      if (active?.id && configuredActiveBabyId !== active.id) {
+        await setActiveBabyId(active.id);
+      }
 
-    setBabyId(active?.id ?? '');
-    setBabyName(normalizeName(active?.name));
-    setBabies(
-      babyList.map((item) => ({
-        id: item.id,
-        name: normalizeName(item.name),
-        photoUri: item.photo_uri ?? null,
-        birthdate: item.birthdate ?? null,
-      })),
-    );
-    setAmountUnitState(nextAmountUnit as 'ml' | 'oz');
-    setWeightUnitState(nextWeightUnit as 'kg' | 'lb');
-    setTempUnitState(nextTempUnit as 'c' | 'f');
-    setReminderSettingsState(nextReminder);
-    setSmartAlertSettingsState(nextSmartAlerts);
-    setBackupSettingsState(nextBackupSettings);
-    setLastSyncAtState(nextLastSyncAt);
-    const derivedHasRequiredProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
-    if (derivedHasRequiredProfile) {
-      setHasRequiredBabyProfile(true);
-    } else if (!babyList.length && isSupabaseConfigured && sessionSnapshot) {
-      // Avoid flipping to false during transient empty states while sync is in progress.
-    } else {
-      setHasRequiredBabyProfile(false);
+      if (!mountedRef.current) return;
+
+      if (!shouldPreserveKnownProfileState) {
+        setBabyId(active?.id ?? '');
+        setBabyName(normalizeName(active?.name));
+        setBabies(
+          babyList.map((item) => ({
+            id: item.id,
+            name: normalizeName(item.name),
+            photoUri: item.photo_uri ?? null,
+            birthdate: item.birthdate ?? null,
+          })),
+        );
+      }
+      setAmountUnitState(nextAmountUnit as 'ml' | 'oz');
+      setWeightUnitState(nextWeightUnit as 'kg' | 'lb');
+      setTempUnitState(nextTempUnit as 'c' | 'f');
+      setReminderSettingsState(nextReminder);
+      setSmartAlertSettingsState(nextSmartAlerts);
+      setBackupSettingsState(nextBackupSettings);
+      setLastSyncAtState(nextLastSyncAt);
+      const derivedHasRequiredProfile = babyList.some((item) => postAuthEnsureBabyProfile(item));
+      if (derivedHasRequiredProfile) {
+        requiredProfileOwnerRef.current = ownerKey;
+        await setRequiredProfileOwnerUserId(ownerKey);
+        setHasRequiredBabyProfile(true);
+        setForceMainAfterOnboarding(false);
+      } else if (hasPersistedRequiredProfile && babyList.length > 0) {
+        requiredProfileOwnerRef.current = ownerKey;
+        setHasRequiredBabyProfile(true);
+        setForceMainAfterOnboarding(false);
+      } else if (!babyList.length && isSupabaseConfigured && sessionSnapshot) {
+        // Avoid flipping to false during transient empty states while sync is in progress.
+        setHasRequiredBabyProfile((prev) => prev && requiredProfileOwnerRef.current === ownerKey);
+      } else {
+        const canKeepPrevious =
+          Boolean(sessionSnapshot?.user?.id) &&
+          requiredProfileOwnerRef.current !== null &&
+          (requiredProfileOwnerRef.current === ownerKey || requiredProfileOwnerRef.current === '__local__');
+        if (sessionSnapshot?.user?.id) {
+          // Keep this monotonic during a signed-in session to prevent onboarding loops
+          // caused by transient sync reads.
+          setHasRequiredBabyProfile((prev) => prev || canKeepPrevious);
+        } else {
+          setHasRequiredBabyProfile(false);
+        }
+      }
+    } finally {
+      if (mountedRef.current) {
+        setAppStateHydrating(false);
+      }
     }
   }, []);
 
@@ -344,15 +372,46 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
         await setActiveBabyId(targetId);
       }
 
-      await loadAppState(sessionRef.current);
       if (mountedRef.current) {
+        const authUserId = sessionRef.current?.user?.id ?? null;
+        if (authUserId) {
+          const localOwner = await getLocalDataOwnerUserId();
+          if (localOwner !== authUserId) {
+            await setLocalDataOwnerUserId(authUserId);
+          }
+        }
+
+        const ownerKey = getProfileOwnerKey(sessionRef.current);
+        requiredProfileOwnerRef.current = ownerKey;
+        await setRequiredProfileOwnerUserId(ownerKey);
+        babyIdRef.current = targetId;
+        setBabyId(targetId);
+        setBabyName(normalizeName(trimmedName));
+        setBabies((prev) => {
+          const nextItem = {
+            id: targetId,
+            name: normalizeName(trimmedName),
+            photoUri: babyPhotoUri ?? existing?.photo_uri ?? null,
+            birthdate: birthdateIso,
+          };
+          const idx = prev.findIndex((item) => item.id === targetId);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = nextItem;
+            babiesRef.current = next;
+            return next;
+          }
+          const next = [...prev, nextItem];
+          babiesRef.current = next;
+          return next;
+        });
         setHasRequiredBabyProfile(true);
+        setForceMainAfterOnboarding(true);
         setDataVersion((prev) => prev + 1);
       }
-      void syncNow().catch(() => undefined);
       return targetId;
     },
-    [babyId, loadAppState, syncNow],
+    [babyId],
   );
 
   const createNewBabyProfile = useCallback(
@@ -369,15 +428,39 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
         photo_uri: babyPhotoUri ?? null,
       });
       await setActiveBabyId(created.id);
-      await loadAppState(sessionRef.current);
 
       if (mountedRef.current) {
+        const authUserId = sessionRef.current?.user?.id ?? null;
+        if (authUserId) {
+          const localOwner = await getLocalDataOwnerUserId();
+          if (localOwner !== authUserId) {
+            await setLocalDataOwnerUserId(authUserId);
+          }
+        }
+
+        babyIdRef.current = created.id;
+        setBabyId(created.id);
+        setBabyName(normalizeName(trimmedName));
+        setBabies((prev) => [
+          ...(() => {
+            const next = [
+              ...prev.filter((item) => item.id !== created.id),
+              {
+                id: created.id,
+                name: normalizeName(trimmedName),
+                photoUri: babyPhotoUri ?? null,
+                birthdate: created.birthdate ?? null,
+              },
+            ];
+            babiesRef.current = next;
+            return next;
+          })(),
+        ]);
         setDataVersion((prev) => prev + 1);
       }
-      void syncNow().catch(() => undefined);
       return created.id;
     },
-    [loadAppState, syncNow],
+    [],
   );
 
   useEffect(() => {
@@ -410,8 +493,13 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
           }
 
           if (supabase) {
-            const { data } = supabase.auth.onAuthStateChange((_event, nextSessionFromEvent) => {
+            const { data } = supabase.auth.onAuthStateChange((event, nextSessionFromEvent) => {
               const run = async () => {
+                // Ignore transient null sessions unless this is an explicit sign-out.
+                if (!nextSessionFromEvent && event !== 'SIGNED_OUT') {
+                  return;
+                }
+
                 setSession(nextSessionFromEvent);
                 await setAuthUserId(nextSessionFromEvent?.user.id ?? null);
 
@@ -543,6 +631,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
   const value = useMemo<AppContextValue>(
     () => ({
       initialized,
+      appStateHydrating,
+      forceMainAfterOnboarding,
       babyId,
       babyName,
       babies,
@@ -575,6 +665,8 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
     }),
     [
       initialized,
+      appStateHydrating,
+      forceMainAfterOnboarding,
       babyId,
       babyName,
       babies,

@@ -12,6 +12,7 @@
     "db:push": "npx supabase db push",
     "db:setup": "bash ./scripts/supabase-setup.sh",
     "ai:smoke": "bash ./scripts/ai-insights-smoke.sh",
+    "check:onboarding-flow": "node ./scripts/onboarding-flow-check.mjs",
     "android": "expo run:android"
   },
   "dependencies": {

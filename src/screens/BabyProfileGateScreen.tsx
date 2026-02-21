@@ -46,6 +46,7 @@ const MAX_PHOTO_URI_LENGTH = 2000;
 
 export const BabyProfileGateScreen = ({
   navigation,
+  route,
 }: NativeStackScreenProps<RootStackParamList, 'BabyOnboarding'>) => {
   const {
     amountUnit,
@@ -53,7 +54,6 @@ export const BabyProfileGateScreen = ({
     createNewBabyProfile,
     hasRequiredBabyProfile,
     saveRequiredBabyProfile,
-    refreshAppState,
     syncNow,
     tempUnit,
     updateAmountUnit,
@@ -66,6 +66,7 @@ export const BabyProfileGateScreen = ({
   const theme = getTheme(scheme === 'dark' ? 'dark' : 'light');
   const { height } = useWindowDimensions();
   const stepsRef = useRef<ScrollView | null>(null);
+  const submitLockRef = useRef(false);
 
   const [babyName, setBabyName] = useState('');
   const [babyBirthdate, setBabyBirthdate] = useState(new Date());
@@ -83,7 +84,7 @@ export const BabyProfileGateScreen = ({
   const [toast, setToast] = useState<ToastState>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<OnboardingField, string>>>({});
 
-  const isCreateMode = navigation.canGoBack();
+  const isCreateMode = route.params?.mode === 'new';
   const showTrackingUnitsStep = !isCreateMode && !hasRequiredBabyProfile;
 
   const sexStepIndex = 1;
@@ -121,6 +122,14 @@ export const BabyProfileGateScreen = ({
       return next;
     });
   };
+
+  useEffect(() => {
+    if (isCreateMode) return;
+    if (!hasRequiredBabyProfile) return;
+    const state = navigation.getState();
+    if (!state.routeNames.includes('Main')) return;
+    navigation.replace('Main');
+  }, [hasRequiredBabyProfile, isCreateMode, navigation]);
 
   useEffect(() => {
     if (!toast) return;
@@ -245,7 +254,7 @@ export const BabyProfileGateScreen = ({
   };
 
   const submit = async (options?: { skipMeasurements?: boolean }) => {
-    if (busy) return;
+    if (busy || submitLockRef.current) return;
 
     setFieldErrors({});
     const stepError = validateCurrentStep();
@@ -291,8 +300,11 @@ export const BabyProfileGateScreen = ({
       return;
     }
 
+    submitLockRef.current = true;
+
     const duplicateName = await isBabyNameTaken(trimmedName, isCreateMode ? undefined : { excludeBabyId: babyId });
     if (duplicateName) {
+      submitLockRef.current = false;
       snapToStep(0);
       setFieldErrors({ babyName: 'Baby name already exists. Use a different name.' });
       setErrorText('Baby name already exists. Use a different name.');
@@ -309,6 +321,7 @@ export const BabyProfileGateScreen = ({
         }
       : getMeasurementPayload();
     if (measurement.error) {
+      submitLockRef.current = false;
       snapToStep(measurementsStepIndex);
       if (measurement.field) {
         setFieldErrors({ [measurement.field]: measurement.error });
@@ -331,6 +344,12 @@ export const BabyProfileGateScreen = ({
       const targetBabyId = isCreateMode
         ? await createNewBabyProfile(trimmedName, babyBirthdate, babyPhotoUri)
         : await saveRequiredBabyProfile(trimmedName, babyBirthdate, babyPhotoUri);
+
+      if (__DEV__) {
+        console.log(
+          `[onboarding] submit success isCreateMode=${isCreateMode} targetBabyId=${targetBabyId} skipMeasurements=${Boolean(options?.skipMeasurements)}`,
+        );
+      }
 
       if (targetBabyId && measurement.weightKg !== null) {
         try {
@@ -365,15 +384,24 @@ export const BabyProfileGateScreen = ({
         }
       }
 
-      void syncNow();
+      if (!isCreateMode) {
+        // Keep navigation deterministic: local state is already updated by saveRequiredBabyProfile.
+        // Sync in the background so route gating is not blocked by auth/session rehydration.
+        void syncNow().catch(() => undefined);
+        if (navigation.getState().routeNames.includes('Main')) {
+          navigation.replace('Main');
+        }
+      }
       if (isCreateMode && navigation.canGoBack()) {
         navigation.goBack();
-      } else if (!isCreateMode) {
-        await refreshAppState();
       }
     } catch (error: any) {
+      if (__DEV__) {
+        console.log(`[onboarding] submit failed: ${error?.message ?? 'unknown error'}`);
+      }
       setErrorText(error?.message ?? 'Profile update failed.');
     } finally {
+      submitLockRef.current = false;
       setBusy(false);
     }
   };
@@ -393,7 +421,7 @@ export const BabyProfileGateScreen = ({
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <View style={styles.content}>
           <View style={styles.topBar}>
-            {navigation.canGoBack() ? (
+            {isCreateMode && navigation.canGoBack() ? (
               <Pressable style={[styles.backButton, { backgroundColor: theme.colors.surface }]} onPress={() => navigation.goBack()} hitSlop={10}>
                 <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
               </Pressable>

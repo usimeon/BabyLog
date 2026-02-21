@@ -15,6 +15,7 @@ const BACKUP_SETTINGS_KEY = 'backup_settings';
 const BABY_SEX_KEY = 'baby_sex';
 const ACTIVE_BABY_ID_KEY = 'active_baby_id';
 const LOCAL_DATA_OWNER_USER_KEY = 'local_data_owner_user_id';
+const REQUIRED_PROFILE_OWNER_USER_KEY = 'required_profile_owner_user_id';
 
 const amountUnits = new Set(['ml', 'oz']);
 const weightUnits = new Set(['kg', 'lb']);
@@ -246,4 +247,12 @@ export const setActiveBabyId = async (babyId: string) => {
 
 export const clearActiveBabyId = async () => {
   await setSetting(ACTIVE_BABY_ID_KEY, '');
+};
+
+export const setRequiredProfileOwnerUserId = async (userId: string | null) =>
+  setSetting(REQUIRED_PROFILE_OWNER_USER_KEY, userId ?? '');
+
+export const getRequiredProfileOwnerUserId = async () => {
+  const value = await getSetting(REQUIRED_PROFILE_OWNER_USER_KEY);
+  return value?.trim() || null;
 };

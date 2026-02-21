@@ -8,6 +8,7 @@ const oauthRedirectScheme = (process.env.EXPO_PUBLIC_OAUTH_REDIRECT_SCHEME ?? 'c
 
 const makeOAuthRedirectUri = () =>
   AuthSession.makeRedirectUri({
+    native: `${oauthRedirectScheme}://auth/callback`,
     scheme: oauthRedirectScheme,
     path: 'auth/callback',
   });
@@ -47,6 +48,20 @@ export const signInWithGoogleOAuth = async () => {
 
   if (error) throw error;
   if (!data?.url) throw new Error('Failed to start OAuth flow.');
+
+  const redirectToParam = (() => {
+    try {
+      return new URL(data.url).searchParams.get('redirect_to');
+    } catch {
+      return null;
+    }
+  })();
+  if (redirectToParam && /localhost/i.test(redirectToParam)) {
+    throw new Error(
+      'Google sign-in redirect is configured to localhost. In Supabase Auth settings, add this redirect URL and use it for OAuth callbacks: ' +
+        redirectTo,
+    );
+  }
 
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   if (isUserCancelResult(result.type)) throw new Error('Sign-in was canceled.');
